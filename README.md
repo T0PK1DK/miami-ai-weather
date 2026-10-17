@@ -4,8 +4,11 @@ Mobile-first Miami AI Weather Helper: a live radar map of South Florida with par
 practical insight. It's one self-contained file, `index.html`, with no dependencies and no build step. Open it in any browser.
 
 ## What's on screen
-- **Map**: stylised South Florida coast, Biscayne Bay, the Keys, I-95 / Turnpike / US-1 / Tamiami Trail, the KAMX radar
-  sweep and range rings. Drag to pan, pinch or scroll to zoom, tap anywhere to check that spot, ⌖ to come back to Miami.
+- **Map**: hand-traced South Florida coastline, barrier islands, Biscayne Bay, the Keys, Florida Bay, Lake Okeechobee and the
+  Bahamas (Bimini, Grand Bahama, Andros). Miami-Dade/Broward's 1-mile section-line street grid (arterials every 2 miles) and
+  the expressways: I-95, the Turnpike, I-75, the 826, 836, 874, 924, 195, 395, 595 and the Sawgrass, plus US-1, US-27,
+  Tamiami Trail, Krome and Card Sound. Also airports (MIA, FLL, OPF, TMB), water and park names, and the KAMX radar sweep
+  and range rings. The coastline and roads sit above the weather so they stay readable under heavy rain. Drag to pan, pinch or scroll to zoom, tap anywhere to check that spot, ⌖ to come back to Miami.
 - **Layers**: Radar (dBZ ramp green → yellow → orange → red → magenta), GeoColor (simulated satellite clouds lit by the
   low western sun, with shadows), Wind (streamlines, including gust-front outflow from the heavy cores).
 - **HUD**: temperature dial (feels-like marker), wind compass, and a bottom panel with the insight, a 3-hour rain strip for
