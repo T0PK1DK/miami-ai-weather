@@ -209,7 +209,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
       <div class="stat"><span class="lbl">Wind</span><b id="sWind">--<small>mph</small></b></div>
       <div class="stat"><span class="lbl" id="sRateL">Rate</span><b id="sRate">--<small>in/h</small></b></div>
     </div>
-    <div class="lbl foot" id="foot">Modeled from current conditions · not live radar</div>
+    <div class="lbl foot" id="foot"></div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -335,6 +335,7 @@ let S = null;                            // scenario: { u, q, vm, stormMph, cell
 const view = { x: -4, y: -4, s: 5.4 };
 let W = 0, H = 0, DPR = 1, AY = 0;
 let mode = "radar";
+let tMin = T_MIN;                         // -50 once live radar is up (its frames go back 50 min)
 let tDisp = T_MIN, playing = !reduceMotion, introStop = true, holdUntil = 0;
 const focus = { x: 0, y: 0, name: SNAPSHOT.place };
 let series = [];                         // rate at focus, every 3 min, T_MIN..T_MAX
@@ -544,12 +545,23 @@ function drawBase() {
     for (let la = Math.ceil(la1 * 4) / 4; la < la2; la += .25) { const [, sy] = w2s(0, km(la, LON0)[1]); g.beginPath(); g.moveTo(0, sy); g.lineTo(W, sy); g.stroke(); g.fillText(la.toFixed(2) + "°N", 4, sy - 3); }
     for (let lo = Math.ceil(lo1 * 4) / 4; lo < lo2; lo += .25) { const [sx] = w2s(km(LAT0, lo)[0], 0); g.beginPath(); g.moveTo(sx, 0); g.lineTo(sx, H); g.stroke(); }
   }
+  if (SAT.state !== "fail") {
+    drawTiles(g, SAT, { dpr: DPR });
+    if (mode !== "geo") {   // MyRadar-style night satellite: desaturate and darken so the radar reads on top
+      g.globalCompositeOperation = "saturation"; g.fillStyle = "rgba(128,128,128,.55)"; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = "source-over"; g.fillStyle = mode === "wind" ? "rgba(6,8,11,.6)" : "rgba(6,8,11,.46)"; g.fillRect(0, 0, W, H);
+    }
+  }
   drawOverlay();
   baseDirty = false;
 }
 function drawOverlay() {
   const g = octx, geo = mode === "geo"; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, W, H);
   g.lineJoin = g.lineCap = "round";
+  if (SAT.state === "ok") {   // real imagery: real roads; skip the hand-traced coast and highways, they'd sit slightly off
+    if (ROADREF.state !== "fail") drawTiles(g, ROADREF, { dpr: DPR, alpha: geo ? .5 : .7 });
+    drawMapNames(g, geo); return;
+  }
   // coastline: a soft halo then a crisp line, so it reads over heavy rain too
   for (const [w, a] of [[3, .1], [1, geo ? .4 : .5]]) {
     g.lineWidth = w; g.strokeStyle = `rgba(233,225,214,${a})`;
@@ -568,7 +580,9 @@ function drawOverlay() {
     g.strokeStyle = "rgba(233,225,214,.65)"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(-6, -2); g.lineTo(6, -2); g.moveTo(-5, 2.5); g.lineTo(5, 2.5); g.stroke();
     g.restore(); g.font = "8px ui-monospace, monospace"; g.fillStyle = "rgba(233,225,214,.6)"; g.fillText(a.n, sx + 9, sy + 3);
   }
-  // water + park names
+  drawMapNames(g, geo);
+}
+function drawMapNames(g, geo) {
   g.textAlign = "center";
   for (const w of WATER_LABELS) { const [sx, sy] = w2s(w.x, w.y);
     g.font = `italic ${w.n === w.n.toUpperCase() ? 10 : 9}px ui-serif, Georgia, serif`; g.fillStyle = geo ? "rgba(190,220,235,.55)" : "rgba(140,175,200,.5)";
@@ -691,7 +705,7 @@ function updateLightning(dt, cores, rt) {
   const thunder = /thunder|storm/i.test(WX.conditions) ? 2 : 1;
   for (const c of cores) {
     if (c.db < 42) continue;
-    const lam = .05 * Math.pow((c.db - 42) / 8, 1.5) * thunder;
+    const lam = .05 * Math.pow((c.db - 42) / 8, 1.5) * thunder * (c.lk ?? 1);
     if (Math.random() < lam * dt) {
       const r = Math.sqrt(-2 * Math.log(Math.random() + 1e-9)) * 1.4, a = Math.random() * 6.283;
       const x = c.x + Math.cos(a) * r, y = c.y + Math.sin(a) * r, dist = Math.hypot(x - focus.x, y - focus.y);
@@ -802,15 +816,23 @@ const clock5 = min => clock(Math.round((min + (T0 / 60000) % 5) / 5) * 5 - (T0 /
 
 /* ---------------- series + insight ---------------- */
 function rateAtFocus(t, boil = 0) {
+  if (radarReadable()) { const d = realDbzAt(focus.x, focus.y, t); return d == null ? NaN : dbzToRate(d); }   // NaN: tile still loading
+  if (radarLive()) return Math.abs(t) < 1.5 && Math.hypot(focus.x, focus.y) < .5 ? WX.precip_in_hr : NaN;    // radar shown but unreadable
   const isObs = Math.hypot(focus.x, focus.y) < .5 && Math.abs(t) < 1.5;
   return isObs ? WX.precip_in_hr : dbzToRate(dbzAt(focus.x, focus.y, t, boil));
 }
 function rebuildSeries() {
-  series = []; for (let t = T_MIN; t <= T_MAX; t += 3) series.push({ t, r: rateAtFocus(t) });
+  series = []; for (let t = tMin; t <= T_MAX; t += 3) series.push({ t, r: rateAtFocus(t) });
   drawChart(); writeInsight();
 }
 function writeInsight() {
   const fut = []; for (let t = 0; t <= 150; t += 2) fut.push({ t, r: rateAtFocus(t) });
+  if (fut.some(p => isNaN(p.r))) {
+    const n = fut[0].r;
+    document.getElementById("insT").textContent = radarLive() && !radarReadable() && !isNaN(n) ? `${rateCat(n)[0].toUpperCase() + rateCat(n).slice(1)} rain reported · ${n.toFixed(1)} in/hr` : "Reading live radar…";
+    document.getElementById("insB").textContent = radarLive() && !radarReadable() ? "Live radar is on the map, but this browser won't let the page read its pixels, so there's no timing estimate." : "";
+    document.getElementById("tags").replaceChildren(); return;
+  }
   const now = fut[0].r, cat = rateCat(now), place = focus.name;
   const fromDir = dirName(WX.wind_dir_deg), toDir = dirName(S.toDeg);
   const idx = (from, pred) => { for (let i = from; i < fut.length; i++) if (pred(fut[i], i)) return i; return -1; };
@@ -866,11 +888,12 @@ function drawChart() {
   const w = chart.clientWidth, h = chart.clientHeight; if (!w) return;
   if (chart.width !== Math.round(w * DPR)) { chart.width = Math.round(w * DPR); chart.height = Math.round(h * DPR); }
   const g = cctx; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, w, h);
-  const top = 4, bot = h - 12, X = t => (t - T_MIN) / (T_MAX - T_MIN) * w, Y = r => bot - (bot - top) * Math.min(1, Math.sqrt(r / 2));
+  const top = 4, bot = h - 12, X = t => (t - tMin) / (T_MAX - tMin) * w, Y = r => bot - (bot - top) * Math.min(1, Math.sqrt(r / 2));
   g.strokeStyle = "rgba(233,225,214,.06)"; g.lineWidth = 1;
   for (const r of [.1, .3, 1]) { g.beginPath(); g.moveTo(0, Y(r) + .5); g.lineTo(w, Y(r) + .5); g.stroke(); }
   const bw = w / series.length;
   for (const p of series) {
+    if (isNaN(p.r)) continue;
     if (p.r < .005) { g.fillStyle = "rgba(233,225,214,.08)"; g.fillRect(X(p.t) - bw / 2 + .5, bot - 1, bw - 1, 1); continue; }
     g.fillStyle = lutCss(rateToDbz(p.r), p.t > 0 ? .8 : .95); g.fillRect(X(p.t) - bw / 2 + .5, Y(p.r), Math.max(1, bw - 1), bot - Y(p.r));
   }
@@ -879,13 +902,13 @@ function drawChart() {
   const ph = X(tDisp); g.strokeStyle = "#e9e1d6"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(ph, 0); g.lineTo(ph, bot); g.stroke();
   g.fillStyle = "#e9e1d6"; g.beginPath(); g.arc(ph, 2.5, 2.5, 0, 6.283); g.fill();
   g.font = "8px ui-monospace, monospace"; g.fillStyle = "rgba(233,225,214,.4)"; g.textBaseline = "alphabetic";
-  for (const [t, s] of [[-60, "-1h"], [0, "NOW"], [60, "+1h"], [120, "+2h"]]) { const tw = g.measureText(s).width; g.fillText(s, clamp(X(t) - tw / 2, 0, w - tw), h - 2); }
+  for (const [t, s] of [[tMin, tMin === -60 ? "-1h" : "-50m"], [0, "NOW"], [60, "+1h"], [120, "+2h"]]) { const tw = g.measureText(s).width; g.fillText(s, clamp(X(t) - tw / 2, 0, w - tw), h - 2); }
 }
 function setTime(t) {
-  tDisp = clamp(t, T_MIN, T_MAX);
+  tDisp = clamp(t, tMin, T_MAX);
   const el = document.getElementById("tlTime"), d = Math.round(tDisp);
   el.innerHTML = Math.abs(d) < 2 ? "<b>Now</b>" : `${clock(d)} <b>${d > 0 ? "+" : "−"}${Math.abs(d)}m</b>`;
-  const r = rateAtFocus(tDisp);
+  const r = rateAtFocus(tDisp) || 0;
   document.getElementById("sRate").innerHTML = `${r < .01 ? "0" : r >= .095 ? r.toFixed(1) : r.toFixed(2)}<small>in/h</small>`;
 }
 function setPlaying(p) {
@@ -893,10 +916,10 @@ function setPlaying(p) {
   document.getElementById("playIco").innerHTML = p ? '<path d="M3 1.5h3v11H3zM8 1.5h3v11H8z"/>' : '<path d="M3 1.5 L12 7 L3 12.5Z"/>';
   document.getElementById("play").setAttribute("aria-label", p ? "Pause radar loop" : "Play radar loop");
 }
-document.getElementById("play").onclick = () => { if (!playing && tDisp >= T_MAX - .5) setTime(T_MIN); setPlaying(!playing); };
+document.getElementById("play").onclick = () => { if (!playing && tDisp >= T_MAX - .5) setTime(tMin); setPlaying(!playing); };
 {
   let scrub = false;
-  const at = e => { const r = chart.getBoundingClientRect(); setTime(T_MIN + clamp((e.clientX - r.left) / r.width, 0, 1) * (T_MAX - T_MIN)); drawChart(); };
+  const at = e => { const r = chart.getBoundingClientRect(); setTime(tMin + clamp((e.clientX - r.left) / r.width, 0, 1) * (T_MAX - tMin)); drawChart(); };
   chart.addEventListener("pointerdown", e => { scrub = true; chart.setPointerCapture(e.pointerId); setPlaying(false); at(e); });
   chart.addEventListener("pointermove", e => scrub && at(e));
   chart.addEventListener("pointerup", () => { scrub = false; if (Math.abs(tDisp) < 4) { setTime(0); drawChart(); } });
@@ -950,11 +973,11 @@ function drawLegend() {
   const T = document.getElementById("legT"), L = document.getElementById("legL");
   if (mode === "radar" || mode === "wind" && false) {
     for (let i = 0; i < 300; i++) { rctx.fillStyle = lutCss(17 + i / 300 * 50); rctx.fillRect(i, 0, 1, 12); }
-    T.textContent = "Precip · dBZ"; L.innerHTML = "<span>Light</span><span>Mod</span><span>Heavy</span><span>Extreme</span>";
+    T.textContent = radarReadable() ? "NEXRAD · live · dBZ" : radarLive() ? "NEXRAD · live" : "Precip · modeled"; L.innerHTML = "<span>Light</span><span>Mod</span><span>Heavy</span><span>Extreme</span>";
   } else if (mode === "geo") {
     const g = rctx.createLinearGradient(0, 0, 300, 0); g.addColorStop(0, "#0c2a40"); g.addColorStop(.4, "#6f7d88"); g.addColorStop(1, "#f2f4f8");
     rctx.fillStyle = g; rctx.fillRect(0, 0, 300, 12);
-    T.textContent = "GeoColor · simulated"; L.innerHTML = "<span>Clear</span><span>Thin</span><span>Deep cloud</span>";
+    T.textContent = goesOk() ? "GOES-East · live" : "GeoColor · modeled"; L.innerHTML = "<span>Clear</span><span>Thin</span><span>Deep cloud</span>";
   } else {
     for (let i = 0; i < 300; i++) { rctx.fillStyle = windColor(i / 300 * 32, 1); rctx.fillRect(i, 0, 1, 12); }
     T.textContent = "Wind · outflow"; L.innerHTML = "<span>0</span><span>10</span><span>20</span><span>30 mph</span>";
@@ -962,7 +985,7 @@ function drawLegend() {
 }
 document.querySelectorAll(".mode").forEach(b => b.onclick = () => {
   mode = b.dataset.m; document.querySelectorAll(".mode").forEach(x => x.setAttribute("aria-pressed", x === b));
-  baseDirty = true; tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, trail.width, trail.height); drawLegend();
+  baseDirty = true; tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, trail.width, trail.height); updateSources();
 });
 
 /* ---------------- HUD ---------------- */
@@ -992,6 +1015,213 @@ function tickClock() {
   document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ, timeZoneName: "short" });
 }
 
+/* ---------------- live layers: satellite base, NEXRAD radar, GOES GeoColor ----------------
+   Real imagery comes in as standard Web-Mercator tiles. Each tile is placed by its corner lat/lons through the
+   same projection as everything else, so labels, the pin and the model line up with it. Anything that fails to
+   load falls back to the drawn map and the model above; ?offline=1 skips the network entirely. */
+const LIVE = !/[?&]offline=1/.test(location.search);
+const tileX = (lon, z) => (lon + 180) / 360 * 2 ** z;
+const tileY = (lat, z) => { const r = lat * RAD; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z; };
+const tileLon = (x, z) => x / 2 ** z * 360 - 180;
+const tileLat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / 2 ** z)))  / RAD;
+
+function TileLayer(url, { minZ = 0, maxZ = 18, cors = false } = {}) {
+  const cache = new Map(); let ok = 0, bad = 0, useCors = cors;
+  const L = {
+    minZ, maxZ, tainted: false,
+    get state() { return !LIVE ? "fail" : ok ? "ok" : bad >= 6 ? "fail" : "pending"; },
+    get readable() { return useCors && ok > 0 && !L.tainted; },   // can we read pixels back (needs CORS)
+    peek(z, x, y, f = "") { const e = cache.get(`${f}/${z}/${x}/${y}`); return e && e.ready ? e : null; },
+    tile(z, x, y, f = "") {
+      if (!LIVE) return null;
+      const n = 2 ** z; x = ((x % n) + n) % n; if (y < 0 || y >= n) return null;
+      const k = `${f}/${z}/${x}/${y}`; let e = cache.get(k);
+      if (!e) {
+        e = { img: new Image(), ready: false, failed: false }; cache.set(k, e);
+        if (cache.size > 700) cache.delete(cache.keys().next().value);
+        if (useCors) e.img.crossOrigin = "anonymous";
+        e.img.decoding = "async";
+        e.img.onload = () => { e.ready = true; ok++; onTile(L); };
+        e.img.onerror = () => {
+          e.failed = true; bad++;
+          if (useCors && !ok && bad >= 2) { useCors = false; bad = 0; cache.clear(); }   // maybe no CORS: retry plain, draw-only
+          onTile(L);
+        };
+        e.img.src = url(z, x, y, f);
+      }
+      return e;
+    },
+    clear() { cache.clear(); },
+  };
+  return L;
+}
+
+/* Draws a layer's tiles covering the view into g. opt: { f (frame), shift [km], sc (dest px per css px), zBias, alpha } */
+function drawTiles(g, L, opt = {}) {
+  const sc = opt.sc ?? 1, f = opt.f ?? "", [shx, shy] = opt.shift ?? [0, 0];
+  const density = sc * (opt.dpr ?? 1);
+  let z = clamp(Math.round(Math.log2(view.s * KX * density * 360 / 256) + (opt.zBias ?? 0)), L.minZ, L.maxZ);
+  const [ax, ay] = s2w(-8, -8), [bx, by] = s2w(W + 8, H + 8);
+  const [laT, loL] = ll(ax - shx, ay - shy), [laB, loR] = ll(bx - shx, by - shy);
+  let tx0, tx1, ty0, ty1;
+  for (;;) {
+    tx0 = Math.floor(tileX(loL, z)); tx1 = Math.floor(tileX(loR, z)); ty0 = Math.floor(tileY(laT, z)); ty1 = Math.floor(tileY(laB, z));
+    if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 64 || z <= L.minZ) break; z--;
+  }
+  let complete = true;
+  if (opt.alpha != null) g.globalAlpha = opt.alpha;
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+    const [x0, y0] = w2s(...add(km(tileLat(ty, z), tileLon(tx, z)), shx, shy));
+    const [x1, y1] = w2s(...add(km(tileLat(ty + 1, z), tileLon(tx + 1, z)), shx, shy));
+    const dx = Math.floor(x0 * sc), dy = Math.floor(y0 * sc), dw = Math.ceil(x1 * sc) - dx + (sc >= 1 ? 1 : 0), dh = Math.ceil(y1 * sc) - dy + (sc >= 1 ? 1 : 0);
+    const e = L.tile(z, tx, ty, f);
+    if (e && e.ready) { g.drawImage(e.img, dx, dy, dw, dh); continue; }
+    complete = false;
+    for (let d = 1; d <= 4 && z - d >= L.minZ; d++) {       // show a blurrier parent while this one loads
+      const p = L.peek(z - d, tx >> d, ty >> d, f); if (!p) continue;
+      const k = 256 / 2 ** d; g.drawImage(p.img, (tx - ((tx >> d) << d)) * k, (ty - ((ty >> d) << d)) * k, k, k, dx, dy, dw, dh); break;
+    }
+  }
+  g.globalAlpha = 1;
+  return complete;
+}
+const add = ([x, y], dx, dy) => [x + dx, y + dy];
+
+// Esri World Imagery (free with attribution) + its transparent road/label reference layer
+const SAT = TileLayer((z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`, { maxZ: 18 });
+const ROADREF = TileLayer((z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/${z}/${y}/${x}`, { maxZ: 18 });
+// NEXRAD base reflectivity composite from the Iowa Environmental Mesonet: now, and every 5 min back to 50 min ago
+let radarStamp = Math.floor(Date.now() / 300000);
+const NEX = TileLayer((z, x, y, f) => `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913${f}/${z}/${x}/${y}.png?v=${radarStamp}`, { minZ: 3, maxZ: 11, cors: true });
+// GOES-East via NASA GIBS. The layer is found at runtime (see findGoes) so a renamed layer degrades to the model.
+const goes = { layer: "", set: "", latest: 0 };
+const GOES = TileLayer((z, x, y, f) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${goes.layer}/default/${f}/${goes.set}/${z}/${y}/${x}.${goes.layer.includes("GeoColor") ? "jpg" : "png"}`, { maxZ: 7 });
+const goesOk = () => !!goes.layer && GOES.state !== "fail";   // findGoes already proved one tile loads
+
+/* Colour → dBZ for the IEM n0q palette, approximated by the standard NWS reflectivity ramp (5 dBZ steps).
+   A 32³ lookup cube projects each colour onto the nearest ramp segment, so values are continuous. */
+const NWS = [[5,4,233,231],[10,1,159,244],[15,3,0,244],[20,2,253,2],[25,1,197,1],[30,0,142,0],[35,253,248,2],[40,229,188,0],
+  [45,253,149,0],[50,253,0,0],[55,212,0,0],[60,188,0,0],[65,248,0,253],[70,152,84,198],[75,253,253,253]];
+const CUBE = new Float32Array(32768);
+for (let i = 0; i < 32768; i++) {
+  const r = ((i >> 10) & 31) * 8 + 4, g = ((i >> 5) & 31) * 8 + 4, b = (i & 31) * 8 + 4;
+  let best = 1e9, db = -1;
+  for (let k = 0; k < NWS.length - 1; k++) {
+    const A = NWS[k], B = NWS[k + 1], vx = B[1] - A[1], vy = B[2] - A[2], vz = B[3] - A[3];
+    const t = clamp(((r - A[1]) * vx + (g - A[2]) * vy + (b - A[3]) * vz) / (vx * vx + vy * vy + vz * vz || 1), 0, 1);
+    const d = (A[1] + vx * t - r) ** 2 + (A[2] + vy * t - g) ** 2 + (A[3] + vz * t - b) ** 2;
+    if (d < best) { best = d; db = A[0] + (B[0] - A[0]) * t; }
+  }
+  CUBE[i] = best < 60 * 60 ? db : -1;      // not a radar colour (map background, labels)
+}
+const cubeDbz = (r, g, b, a) => a < 60 ? 0 : Math.max(0, CUBE[(r >> 3) << 10 | (g >> 3) << 5 | (b >> 3)]);
+
+const radarLive = () => NEX.state === "ok";
+const radarReadable = () => radarLive() && NEX.readable;
+/* Which radar frame shows minute t: real frames for the past, the latest frame advected by the storm motion ahead. */
+function radarFrame(t) {
+  if (t <= 0) { const k = clamp(Math.round(-t / 5), 0, 10); return { f: k ? `-m${String(k * 5).padStart(2, "0")}m` : "", shift: [0, 0], fade: 1 }; }
+  return { f: "", shift: [S.vm[0] * t, S.vm[1] * t], fade: 1 - t / 260 };
+}
+
+// Real-radar raster: tiles → small grid canvas → dBZ grid → our colour ramp, plus pseudo-cores for lightning/wind/track
+const rgC = document.createElement("canvas"), rgx = rgC.getContext("2d", { willReadFrequently: true });
+let radarVer = 0, rfKey = "", rfCores = [];
+function realField(t) {
+  const { f, shift, fade } = radarFrame(t);
+  const key = [f, shift[0].toFixed(2), shift[1].toFixed(2), view.x.toFixed(3), view.y.toFixed(3), view.s.toFixed(4), mode, radarVer, GW, GH].join("|");
+  if (key === rfKey) return rfCores;
+  rfKey = key;
+  if (rgC.width !== GW || rgC.height !== GH) { rgC.width = GW; rgC.height = GH; }
+  rgx.clearRect(0, 0, GW, GH); rgx.imageSmoothingEnabled = false;      // nearest: blended colours would decode wrong
+  drawTiles(rgx, NEX, { f, shift, sc: 1 / STEP });
+  let px;
+  try { px = rgx.getImageData(0, 0, GW, GH).data; } catch { NEX.tainted = true; return rfCores = []; }
+  for (let i = 0; i < GW; i++) gxW[i] = view.x + (i * STEP + STEP / 2 - W / 2) / view.s;
+  for (let j = 0; j < GH; j++) gyW[j] = view.y - (j * STEP + STEP / 2 - AY) / view.s;
+  const d = img.data, alphaK = (mode === "wind" ? .32 : 1) * fade;
+  for (let k = 0, o = 0; k < GW * GH; k++, o += 4) {
+    const db = cubeDbz(px[o], px[o + 1], px[o + 2], px[o + 3]); zGrid[k] = db;
+    if (db < 15) { d[o + 3] = 0; continue; }
+    const l = Math.round(Math.min(db, 80) * 2) * 4;
+    d[o] = LUT[l]; d[o + 1] = LUT[l + 1]; d[o + 2] = LUT[l + 2]; d[o + 3] = LUT[l + 3] * alphaK;
+  }
+  fctx.putImageData(img, 0, 0);
+  // block maxima ≥ 40 dBZ become cores the rest of the page already understands
+  const B = 6, sig = B * STEP / view.s / 2, cores = [];
+  for (let bj = 0; bj < GH; bj += B) for (let bi = 0; bi < GW; bi += B) {
+    let m = 0, mi = 0, mj = 0;
+    for (let j = bj; j < Math.min(GH, bj + B); j++) for (let i = bi; i < Math.min(GW, bi + B); i++) { const v = zGrid[j * GW + i]; if (v > m) { m = v; mi = i; mj = j; } }
+    if (m < 40) continue;
+    const amp = 10 ** (m / 10), lnA = Math.log(amp);
+    cores.push({ x: gxW[mi], y: gyW[mj], db: m, amp, ia: 1 / (2 * sig * sig), ic: 1 / (2 * sig * sig), lnA, r: sig * Math.sqrt(2 * lnA), real: true });
+  }
+  // lightning rates were tuned for model cores; scale by block area so zooming doesn't change the strike rate
+  const areaK = (B * STEP / view.s) ** 2 / 20;
+  for (const c of cores) c.lk = areaK;
+  return rfCores = cores;
+}
+/* dBZ at a world point and minute, read straight from a z9 tile (≈300 m pixels). null = not loaded yet. */
+const sampC = document.createElement("canvas"); sampC.width = sampC.height = 256;
+const sampX = sampC.getContext("2d", { willReadFrequently: true });
+function realDbzAt(x, y, t) {
+  const { f, shift } = radarFrame(t), [la, lo] = ll(x - shift[0], y - shift[1]), z = 9;
+  const fx = tileX(lo, z), fy = tileY(la, z), tx = Math.floor(fx), ty = Math.floor(fy);
+  const e = NEX.tile(z, tx, ty, f); if (!e) return null; if (e.failed) return 0; if (!e.ready) return null;
+  if (!e.px) {
+    try { sampX.clearRect(0, 0, 256, 256); sampX.drawImage(e.img, 0, 0); e.px = sampX.getImageData(0, 0, 256, 256).data; }
+    catch { NEX.tainted = true; return null; }
+  }
+  const cx = Math.floor((fx - tx) * 256), cy = Math.floor((fy - ty) * 256); let m = 0;
+  for (let j = Math.max(0, cy - 1); j <= Math.min(255, cy + 1); j++) for (let i = Math.max(0, cx - 1); i <= Math.min(255, cx + 1); i++) {
+    const o = (j * 256 + i) * 4; m = Math.max(m, cubeDbz(e.px[o], e.px[o + 1], e.px[o + 2], e.px[o + 3]));
+  }
+  return m;
+}
+
+/* GIBS: try GeoColor first, then visible / clean-IR; first layer whose tile over Miami loads wins. */
+async function findGoes() {
+  if (!LIVE) return;
+  const z = 5, x = Math.floor(tileX(LON0, z)), y = Math.floor(tileY(LAT0, z));
+  const iso = ms => new Date(ms).toISOString().slice(0, 17) + "00Z";
+  const probe = src => new Promise(res => { const im = new Image(), to = setTimeout(() => res(false), 9000);
+    im.onload = () => { clearTimeout(to); res(true); }; im.onerror = () => { clearTimeout(to); res(false); }; im.src = src; });
+  const C = [["GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level7"], ["GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level6"],
+    ["GOES-East_ABI_Band2_Red_Visible_1km", "GoogleMapsCompatible_Level8"], ["GOES-East_ABI_Band13_Clean_Infrared", "GoogleMapsCompatible_Level6"]];
+  const now10 = Math.floor(Date.now() / 600000) * 600000;
+  for (const [layer, set] of C) for (const lag of [20, 40, 70]) {
+    const ms = now10 - lag * 60000, ext = layer.includes("GeoColor") ? "jpg" : "png";
+    if (await probe(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${iso(ms)}/${set}/${z}/${y}/${x}.${ext}`)) {
+      Object.assign(goes, { layer, set, latest: ms, iso }); GOES.maxZ = +set.match(/\d+$/)[0]; GOES.clear(); updateSources(); return;
+    }
+  }
+  updateSources();
+}
+function goesFrame(t) {
+  if (t <= 0) return { f: goes.iso(goes.latest + Math.round(t / 10) * 600000), shift: [0, 0] };
+  return { f: goes.iso(goes.latest), shift: [S.vm[0] * t, S.vm[1] * t] };
+}
+
+let liveTimer = 0;
+function onTile(L) {
+  if (L === SAT || L === ROADREF) baseDirty = true;
+  if (L === NEX) radarVer++;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => { updateSources(); if (L === NEX) { rebuildSeries(); setTime(tDisp); } }, 350);
+}
+/* Footer + legend reflect what is actually on screen. */
+function updateSources() {
+  const tMinWas = tMin; tMin = radarLive() ? -50 : T_MIN; if (tMin !== tMinWas) { setTime(tDisp); drawChart(); }
+  const parts = [];
+  parts.push(radarLive() ? "Radar NEXRAD/IEM" + (radarReadable() ? "" : " (view only)") : "Radar modeled");
+  if (mode === "geo") parts.push(goesOk() ? "GOES-East/NASA GIBS" : "Clouds modeled");
+  if (SAT.state === "ok") parts.push("Imagery © Esri, Maxar, Earthstar");
+  parts.push(WX.source === "open-meteo" ? "Open-Meteo" : "Oct 17 snapshot");
+  if (radarLive()) parts.push("forecast = radar extrapolation");
+  document.getElementById("foot").textContent = parts.join(" · ");
+  drawLegend();
+}
+
 /* ---------------- frame ---------------- */
 let lastT = performance.now();
 function frame(now) {
@@ -999,21 +1229,26 @@ function frame(now) {
   if (playing && now > holdUntil) {
     const nt = tDisp + dt * LOOP_MIN_PER_S;
     if (introStop && tDisp < 0 && nt >= 0) { setTime(0); setPlaying(false); }
-    else if (nt >= T_MAX) { setTime(T_MAX); holdUntil = now + 1200; setTimeout(() => { if (playing) setTime(T_MIN); }, 1200); }
+    else if (nt >= T_MAX) { setTime(T_MAX); holdUntil = now + 1200; setTimeout(() => { if (playing) setTime(tMin); }, 1200); }
     else setTime(nt);
     drawChart();
   }
   if (baseDirty) drawBase();
-  const cores = coresAt(tDisp);
-  computeField(tDisp, rt, cores);
+  // One source of truth per frame: readable live radar, else (radar shown but unreadable) nothing to model, else the model.
+  if (NEX.state === "pending") realField(tDisp);   // requests the tiles; the model keeps drawing until they arrive
+  const real = radarReadable(), rawRadar = radarLive() && !real;
+  const cores = real ? realField(tDisp) : rawRadar ? [] : coresAt(tDisp);
+  const realSat = mode === "geo" && goesOk();
+  if (mode === "geo" ? !realSat : !real && !rawRadar) computeField(tDisp, rt, cores);
 
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.drawImage(base, 0, 0, W, H);
-  if (mode === "geo") {   // cloud shadows fall east of the clouds under a low western sun
-    ctx.imageSmoothingEnabled = true; ctx.drawImage(shadowC, 5, 3, W, H);
-  }
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(fieldC, 0, 0, W, H);
+  if (realSat) drawTiles(ctx, GOES, { ...goesFrame(tDisp), dpr: DPR, alpha: .93 });
+  else if (mode === "geo") {   // modeled clouds; shadows fall east of them under a low western sun
+    ctx.drawImage(shadowC, 5, 3, W, H); ctx.drawImage(fieldC, 0, 0, W, H);
+  } else if (rawRadar) { const fr = radarFrame(tDisp); drawTiles(ctx, NEX, { ...fr, dpr: DPR, alpha: (mode === "wind" ? .3 : .8) * fr.fade }); }
+  else ctx.drawImage(fieldC, 0, 0, W, H);
   ctx.globalAlpha = mode === "geo" ? .55 : 1; ctx.drawImage(ovl, 0, 0, W, H); ctx.globalAlpha = 1;   // reference layer, softer over clouds
   if (mode === "radar") { drawSweep(rt); drawTrack(cores); }
   if (mode === "wind") { drawWind(dt, cores); ctx.drawImage(trail, 0, 0, W, H); }
@@ -1022,7 +1257,7 @@ function frame(now) {
   drawLabels();
   drawPin(rt);
 
-  const target = rateAtFocus(tDisp, rt);
+  const target = rateAtFocus(tDisp, rt) || 0;
   rainLevel += (target - rainLevel) * Math.min(1, dt * 2.5);
   drawRain(dt, rainLevel, rt);
 
@@ -1045,6 +1280,7 @@ function normalize(d) {
   if (typeof n.conditions === "string") o.conditions = n.conditions[0].toUpperCase() + n.conditions.slice(1);
   if (typeof d.location === "string") o.location = d.location;
   if (typeof d.outlook === "string") o.outlook = d.outlook;
+  if (typeof d.source === "string") o.source = d.source;
   return o;
 }
 function setConditions(d) {
@@ -1054,7 +1290,7 @@ window.NardWeather = { set: setConditions, get: () => ({ ...WX }), mode: m => do
 addEventListener("message", e => { if (e.source === window.parent && e.data && e.data.type === "nard-weather") setConditions(e.data.data); });
 
 async function tryLive() {
-  if (!/[?&]live=1/.test(location.search)) return;
+  if (!LIVE) return;
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT0}&longitude=${LON0}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FNew_York`;
     const r = await fetch(url, { signal: AbortSignal.timeout(6000) }); if (!r.ok) return;
@@ -1062,7 +1298,8 @@ async function tryLive() {
     const code = c.weather_code, cond = code >= 95 ? "Thunderstorms" : code >= 80 ? "Showers" : code >= 61 ? "Rain" : code >= 51 ? "Drizzle" : code >= 3 ? "Cloudy" : code >= 1 ? "Partly cloudy" : "Clear";
     // Open-Meteo "current" precipitation is the preceding 15-minute total.
     setConditions({ temp_f: c.temperature_2m, feels_like_f: c.apparent_temperature, humidity_pct: c.relative_humidity_2m, wind_mph: c.wind_speed_10m,
-      wind_dir_deg: c.wind_direction_10m, precip_in: c.precipitation, precip_window_min: 15, conditions: cond });
+      wind_dir_deg: c.wind_direction_10m, precip_in: c.precipitation, precip_window_min: 15, conditions: cond, source: "open-meteo", outlook: "" });
+    updateSources();
   } catch {}
 }
 
@@ -1076,6 +1313,9 @@ rebuildSeries();
 if (reduceMotion) { setTime(0); setPlaying(false); } else { setTime(T_MIN); setPlaying(true); introStop = true; }
 requestAnimationFrame(frame);
 tryLive();
+updateSources();
+setTimeout(findGoes, 1200);
+setInterval(() => { radarStamp = Math.floor(Date.now() / 300000); NEX.clear(); radarVer++; rebuildSeries(); }, 300000);   // new radar frame every 5 min
 </script>
 </body>
 </html>
