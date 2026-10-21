@@ -23,12 +23,14 @@ There is no account, no PIN, and no deploy step in this repo.
 
 ## What it does
 
-- **Now** — large temperature, hourly strip, Rothfusz heat index, and a deterministic AI briefing
+- **Now** — large temperature, hourly strip with icons, Rothfusz heat index, 15-minute nowcast line, and a deterministic AI briefing
 - **Radar** — RainViewer mosaic on a dark map, play/pause, pin on the selected place
-- **Particle rain** — canvas drops scale with live precipitation and wind
-- **Filterable views** — neighborhood search plus nine desks (beach, heat, flood, tropics, play)
+- **Particle rain** — canvas drops scale with live precipitation and wind, and stay off when `prefers-reduced-motion` is set
+- **Filterable views** — neighborhood search plus nine desks (beach, heat, flood, tropics, play) in a sticky mobile toolbar
 - **Flood desk** — Virginia Key tides plus king-tide windows and a compound-flood score
 - **Play desk** — hour-by-hour scores for beach, run, commute, patio, boat, and kids
+- **Offline last snapshot** — the last good feed for each neighborhood is saved locally and shown with a stale-time if live feeds miss
+- **Alerts** — NWS headlines stay at the top of every desk, with an expiration countdown when the feed includes an end time
 
 ## Data
 
@@ -49,7 +51,7 @@ There is no account, no PIN, and no deploy step in this repo.
 
 ## Tests
 
-`npm test` covers heat index branches, flood scoring, briefing leads, activity windows, king-tide dates, and formatters. CI runs tests and `npm run build`.
+`npm test` covers heat index branches, flood scoring, briefing leads, activity windows, king-tide dates, formatters, Eastern-time feed parsing, snapshot revive, nowcast copy, and a mocked `loadSnapshot` run that never hits the network. CI runs tests and `npm run build`.
 
 ## Standalone radar helper
 

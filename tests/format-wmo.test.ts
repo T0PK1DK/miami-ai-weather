@@ -11,6 +11,8 @@ describe("formatters", () => {
     expect(formatTemp(86, "us")).toBe("86°");
     expect(formatWind(10, "metric")).toBe("16 km/h");
     expect(formatPrecip(0.25, "metric")).toBe("6 mm");
+    expect(formatPrecip(0, "us")).toBe("0 in");
+    expect(formatPrecip(0.04, "us")).toBe("0.04 in");
     expect(compass(90)).toBe("E");
     expect(escapeHtml('<x & "y">')).toBe("&lt;x &amp; &quot;y&quot;&gt;");
   });

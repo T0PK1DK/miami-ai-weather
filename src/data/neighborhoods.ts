@@ -176,7 +176,11 @@ export const NEIGHBORHOODS: Neighborhood[] = [
 export const DEFAULT_PLACE_ID = "south-beach";
 
 export function findNeighborhood(id: string): Neighborhood {
-  return NEIGHBORHOODS.find((n) => n.id === id) ?? NEIGHBORHOODS[2]!;
+  return (
+    NEIGHBORHOODS.find((n) => n.id === id) ??
+    NEIGHBORHOODS.find((n) => n.id === DEFAULT_PLACE_ID) ??
+    NEIGHBORHOODS[0]!
+  );
 }
 
 export function searchNeighborhoods(query: string): Neighborhood[] {
@@ -188,9 +192,14 @@ export function searchNeighborhoods(query: string): Neighborhood[] {
   });
 }
 
-/** If the current pin is not in the filtered list, jump to the first match. */
+/**
+ * Keep the current pin while the user is still typing.
+ * Jump only when the query uniquely identifies another place (3+ characters).
+ */
 export function placeIdAfterFilter(query: string, currentId: string): string {
   const matches = searchNeighborhoods(query);
   if (matches.some((n) => n.id === currentId)) return currentId;
-  return matches[0]?.id ?? currentId;
+  const q = query.trim().toLowerCase();
+  if (q.length < 3 || matches.length !== 1) return currentId;
+  return matches[0]!.id;
 }

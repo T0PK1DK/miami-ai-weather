@@ -3,6 +3,7 @@ import { DEFAULT_PLACE_ID, findNeighborhood, placeIdAfterFilter, searchNeighborh
 import { escapeHtml } from "./lib/format";
 import { RainField } from "./lib/particles";
 import { clampFrame } from "./lib/radar";
+import { readStoredSnapshot, writeStoredSnapshot } from "./lib/snapshot-store";
 import { isWetCode } from "./lib/wmo";
 import { loadSnapshot } from "./lib/weather";
 import { renderApp } from "./ui/render";
@@ -20,6 +21,7 @@ type State = {
   loading: boolean;
   error: string | null;
   snapshot: Snapshot | null;
+  fromCache: boolean;
   radarPlaying: boolean;
   radarFrame: number;
 };
@@ -39,6 +41,7 @@ export class WeatherApp {
     loading: true,
     error: null,
     snapshot: null,
+    fromCache: false,
     radarPlaying: true,
     radarFrame: 0
   };
@@ -48,6 +51,7 @@ export class WeatherApp {
   }
 
   start(): void {
+    this.restorePlace(this.state.placeId);
     this.paint();
     void this.refresh();
     window.addEventListener("resize", () => this.rain?.resize());
@@ -55,7 +59,8 @@ export class WeatherApp {
 
   private paint(): void {
     const rainCanvas = this.root.querySelector("#rain");
-    this.root.innerHTML = renderApp(this.state);
+    this.teardownRadar();
+    this.root.innerHTML = renderApp({ ...this.state, clock: new Date() });
     this.bind();
     this.mountRain(rainCanvas);
     if (this.state.view === "radar") this.mountRadar();
@@ -63,10 +68,7 @@ export class WeatherApp {
 
   private bind(): void {
     this.root.querySelector("#place")?.addEventListener("change", (event) => {
-      const id = (event.target as HTMLSelectElement).value;
-      this.state.placeId = id;
-      localStorage.setItem(PLACE_KEY, id);
-      void this.refresh();
+      this.switchPlace((event.target as HTMLSelectElement).value);
     });
     this.root.querySelector("#place-search")?.addEventListener("input", (event) => {
       this.state.query = (event.target as HTMLInputElement).value;
@@ -83,8 +85,7 @@ export class WeatherApp {
     this.root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const view = btn.dataset.view;
-        if (view && isView(view)) {
-          this.teardownRadar();
+        if (view && isView(view) && view !== this.state.view) {
           this.state.view = view;
           this.paint();
         }
@@ -98,6 +99,27 @@ export class WeatherApp {
     });
   }
 
+  private switchPlace(id: string): void {
+    if (id === this.state.placeId && this.state.snapshot?.place.id === id) {
+      void this.refresh();
+      return;
+    }
+    this.state.placeId = id;
+    this.state.query = "";
+    localStorage.setItem(PLACE_KEY, id);
+    this.restorePlace(id);
+    void this.refresh();
+  }
+
+  private restorePlace(placeId: string): void {
+    const cached = readStoredSnapshot(placeId);
+    this.state.snapshot = cached;
+    this.state.fromCache = Boolean(cached);
+    if (cached) {
+      this.state.radarFrame = Math.max(0, cached.radar.frames.length - 1);
+    }
+  }
+
   private syncPlaceOptions(): void {
     const select = this.root.querySelector("#place") as HTMLSelectElement | null;
     if (!select) return;
@@ -109,10 +131,7 @@ export class WeatherApp {
     if (matches.length === 0) return;
     select.value = nextId;
     if (nextId !== this.state.placeId) {
-      this.state.placeId = nextId;
-      this.state.query = "";
-      localStorage.setItem(PLACE_KEY, nextId);
-      void this.refresh();
+      this.switchPlace(nextId);
     }
   }
 
@@ -125,12 +144,15 @@ export class WeatherApp {
       const snap = await loadSnapshot(findNeighborhood(this.state.placeId));
       if (token !== this.loadToken) return;
       this.state.snapshot = snap;
+      this.state.fromCache = false;
       this.state.loading = false;
       this.state.radarFrame = Math.max(0, snap.radar.frames.length - 1);
+      writeStoredSnapshot(snap);
       this.paint();
     } catch (error) {
       if (token !== this.loadToken) return;
       this.state.loading = false;
+      this.state.fromCache = Boolean(this.state.snapshot);
       this.state.error = error instanceof Error ? error.message : "Could not load weather.";
       this.paint();
     }
@@ -210,8 +232,11 @@ export class WeatherApp {
 
   private teardownRadar(): void {
     window.clearInterval(this.radarTimer);
-    this.map?.remove();
-    this.map = null;
+    this.radarTimer = 0;
+    if (this.map) {
+      this.map.remove();
+      this.map = null;
+    }
     this.radarLayer = null;
   }
 }

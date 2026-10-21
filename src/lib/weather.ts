@@ -1,3 +1,4 @@
+import { parseWallClockInZone } from "./time";
 import type { AlertItem, DayPoint, HourPoint, Neighborhood, RadarFrame, Snapshot, StormItem, TideEvent } from "../types";
 
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
@@ -94,15 +95,16 @@ export async function loadSnapshot(place: Neighborhood, now = new Date()): Promi
   const hourly = asObj(f.hourly);
   const daily = asObj(f.daily);
   const minute = asObj(f.minutely_15);
-  const hours = zipHours(hourly);
-  const days = zipDays(daily);
+  const timezone = String(f.timezone ?? "America/New_York");
+  const hours = zipHours(hourly, timezone);
+  const days = zipDays(daily, timezone);
 
   return {
     fetchedAt: now,
     place,
-    timezone: String(f.timezone ?? "America/New_York"),
+    timezone,
     current: {
-      time: parseTime(current.time) ?? now,
+      time: parseWallClockInZone(current.time, timezone) ?? now,
       tempF: num(current.temperature_2m),
       feelsF: num(current.apparent_temperature),
       humidity: num(current.relative_humidity_2m),
@@ -118,7 +120,7 @@ export async function loadSnapshot(place: Neighborhood, now = new Date()): Promi
     },
     hours,
     days,
-    nowcast: zipNowcast(minute),
+    nowcast: zipNowcast(minute, timezone),
     alerts: alerts.status === "fulfilled" ? alerts.value : [],
     tides: tides.status === "fulfilled" ? tides.value : [],
     storms: storms.status === "fulfilled" ? storms.value : [],
@@ -173,7 +175,7 @@ async function fetchAlerts(place: Neighborhood): Promise<AlertItem[]> {
           urgency: String(p.urgency ?? "Unknown"),
           headline: String(p.headline ?? p.event ?? "Weather alert"),
           instruction: String(p.instruction ?? ""),
-          ends: parseTime(p.ends) ?? parseTime(p.expires)
+          ends: parseWallClockInZone(p.ends, "America/New_York") ?? parseWallClockInZone(p.expires, "America/New_York")
         };
       });
     } catch {
@@ -202,7 +204,7 @@ async function fetchTides(now: Date): Promise<TideEvent[]> {
   return preds.map((row) => {
     const r = asObj(row);
     return {
-      time: parseTime(r.t) ?? now,
+      time: parseWallClockInZone(r.t, "America/New_York") ?? now,
       heightFt: num(r.v),
       type: String(r.type) === "L" ? "L" : "H"
     };
@@ -249,10 +251,10 @@ async function fetchRadar(): Promise<{ host: string; frames: RadarFrame[] }> {
   return { host, frames };
 }
 
-function zipHours(hourly: Json): HourPoint[] {
+function zipHours(hourly: Json, timeZone: string): HourPoint[] {
   const times = asNumOrStrArray(hourly.time);
   return times.map((t, i) => ({
-    time: parseTime(t) ?? new Date(),
+    time: parseWallClockInZone(t, timeZone) ?? new Date(),
     tempF: at(hourly.temperature_2m, i),
     feelsF: at(hourly.apparent_temperature, i),
     humidity: at(hourly.relative_humidity_2m, i),
@@ -269,10 +271,10 @@ function zipHours(hourly: Json): HourPoint[] {
   }));
 }
 
-function zipDays(daily: Json): DayPoint[] {
+function zipDays(daily: Json, timeZone: string): DayPoint[] {
   const times = asNumOrStrArray(daily.time);
   return times.map((t, i) => ({
-    date: parseTime(t) ?? new Date(),
+    date: parseWallClockInZone(t, timeZone) ?? new Date(),
     highF: at(daily.temperature_2m_max, i),
     lowF: at(daily.temperature_2m_min, i),
     feelsMaxF: at(daily.apparent_temperature_max, i),
@@ -281,15 +283,15 @@ function zipDays(daily: Json): DayPoint[] {
     weatherCode: at(daily.weather_code, i),
     uvMax: at(daily.uv_index_max, i),
     windMaxMph: at(daily.wind_speed_10m_max, i),
-    sunrise: parseTime(asNumOrStrArray(daily.sunrise)[i]) ?? new Date(),
-    sunset: parseTime(asNumOrStrArray(daily.sunset)[i]) ?? new Date()
+    sunrise: parseWallClockInZone(asNumOrStrArray(daily.sunrise)[i], timeZone) ?? new Date(),
+    sunset: parseWallClockInZone(asNumOrStrArray(daily.sunset)[i], timeZone) ?? new Date()
   }));
 }
 
-function zipNowcast(minute: Json): Array<{ time: Date; precipIn: number }> {
+function zipNowcast(minute: Json, timeZone: string): Array<{ time: Date; precipIn: number }> {
   const times = asNumOrStrArray(minute.time);
   return times.map((t, i) => ({
-    time: parseTime(t) ?? new Date(),
+    time: parseWallClockInZone(t, timeZone) ?? new Date(),
     precipIn: at(minute.precipitation, i)
   }));
 }
@@ -310,12 +312,6 @@ function at(value: unknown, index: number): number {
 function num(value: unknown, fallback = 0): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function parseTime(value: unknown): Date | null {
-  if (typeof value !== "string" && typeof value !== "number") return null;
-  const d = new Date(typeof value === "number" ? value : value.replace(" ", "T"));
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function metersToMiles(m: number): number {
