@@ -41,8 +41,13 @@ export class RainField {
   start(): void {
     if (this.running) return;
     this.running = true;
+    if (this.reduceMotion) {
+      this.ctx.clearRect(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
+      return;
+    }
     this.last = performance.now();
     const tick = (t: number) => {
+      if (!this.running) return;
       const dt = Math.min(0.05, (t - this.last) / 1000);
       this.last = t;
       this.step(dt);

@@ -14,6 +14,8 @@ import {
   formatWind
 } from "../lib/format";
 import { heatCategory, heatIndexF } from "../lib/heat";
+import { dayRangeLayout, describeNowcast } from "../lib/nowcast";
+import { formatTimeLeft, staleAge } from "../lib/time";
 import { uvCategory } from "../lib/uv";
 import { currentUv } from "../lib/weather";
 import { isWetCode, weatherIcon, wmoLabel } from "../lib/wmo";
@@ -41,13 +43,18 @@ export function renderApp(input: {
   query: string;
   loading: boolean;
   error: string | null;
+  fromCache: boolean;
   radarPlaying: boolean;
+  clock?: Date;
 }): string {
+  const clock = input.clock ?? new Date();
   const placeOptions = NEIGHBORHOODS.filter((n) => {
     const q = input.query.trim().toLowerCase();
     if (!q) return true;
     return `${n.name} ${n.area} ${n.tags.join(" ")}`.toLowerCase().includes(q);
   });
+  const snap = input.snapshot && input.snapshot.place.id === input.placeId ? input.snapshot : null;
+  const stale = Boolean(snap && (input.fromCache || input.loading));
 
   return `
     <a class="skip" href="#main">Skip to briefing</a>
@@ -57,9 +64,11 @@ export function renderApp(input: {
         <p class="kicker">Miami AI Weather</p>
         <h1>South Florida, in plain language</h1>
       </div>
+    </header>
+    <div class="sticky-bar">
       <div class="controls">
         <label class="sr-only" for="place-search">Filter neighborhoods</label>
-        <input id="place-search" class="search" type="text" autocomplete="off" placeholder="Filter places" value="${escapeHtml(input.query)}" />
+        <input id="place-search" class="search" type="search" autocomplete="off" placeholder="Filter places" value="${escapeHtml(input.query)}" />
         <label class="sr-only" for="place">Neighborhood</label>
         <select id="place">
           ${placeOptions
@@ -72,17 +81,22 @@ export function renderApp(input: {
         <button type="button" id="units" class="ghost" aria-label="Toggle units">${input.units === "us" ? "°F" : "°C"}</button>
         <button type="button" id="refresh" class="ghost" aria-label="Reload conditions">Reload</button>
       </div>
-    </header>
-    <nav class="chips" aria-label="Views">
-      ${VIEWS.map(
-        (v) =>
-          `<button type="button" data-view="${v.id}" class="${v.id === input.view ? "on" : ""}">${v.label}</button>`
-      ).join("")}
-    </nav>
+      <nav class="chips" aria-label="Views">
+        ${VIEWS.map(
+          (v) =>
+            `<button type="button" data-view="${v.id}" class="${v.id === input.view ? "on" : ""}" aria-current="${v.id === input.view ? "page" : "false"}">${v.label}</button>`
+        ).join("")}
+      </nav>
+    </div>
     <main id="main">
       ${input.loading ? `<p class="banner">Pulling live Miami conditions…</p>` : ""}
       ${input.error ? `<p class="banner error">${escapeHtml(input.error)}</p>` : ""}
-      ${input.snapshot ? renderBody(input.snapshot, input.view, input.units, input.radarPlaying) : emptyState(input.loading)}
+      ${
+        snap && stale
+          ? `<p class="banner stale" role="status">Showing the last saved snapshot for ${escapeHtml(snap.place.name)} · ${escapeHtml(staleAge(snap.fetchedAt, clock))}${input.loading ? ". Checking live feeds." : input.error ? ". Live feeds missed this pass." : "."}</p>`
+          : ""
+      }
+      ${snap ? renderBody(snap, input.view, input.units, input.radarPlaying, clock) : emptyState(input.loading)}
     </main>
     <footer class="foot">
       <p>Forecast from <a href="https://open-meteo.com/">Open-Meteo</a>. Alerts from <a href="https://www.weather.gov/mfl/">NWS Miami</a>. Tides from <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>. Radar from <a href="https://www.rainviewer.com/api.html">RainViewer</a>. Tropics from <a href="https://www.nhc.noaa.gov/">NHC</a>.</p>
@@ -96,14 +110,18 @@ function emptyState(loading: boolean): string {
   return `<section class="card"><p>No snapshot yet. Pick a neighborhood and refresh.</p></section>`;
 }
 
-function renderBody(snap: Snapshot, view: ViewId, units: Units, radarPlaying: boolean): string {
+function renderBody(snap: Snapshot, view: ViewId, units: Units, radarPlaying: boolean, clock: Date): string {
   const alerts = snap.alerts.length
     ? `<section class="alerts">${snap.alerts
         .slice(0, 4)
-        .map(
-          (a) =>
-            `<article class="alert"><strong>${escapeHtml(a.event)}</strong><p>${escapeHtml(a.headline)}</p></article>`
-        )
+        .map((a) => {
+          const left = a.ends ? formatTimeLeft(a.ends, clock) : "";
+          return `<article class="alert">
+            <strong>${escapeHtml(a.event)}</strong>
+            <p>${escapeHtml(a.headline)}</p>
+            ${left ? `<p class="muted">${escapeHtml(left)}</p>` : ""}
+          </article>`;
+        })
         .join("")}</section>`
     : "";
 
@@ -151,6 +169,7 @@ function nowView(snap: Snapshot, units: Units): string {
   });
   const icon = weatherIcon(snap.current.weatherCode, snap.current.isDay);
   const hours = snap.hours.filter((h) => h.time >= new Date(snap.current.time.getTime() - 30 * 60 * 1000)).slice(0, 14);
+  const nowcast = describeNowcast(snap.nowcast, snap.current.time, snap.timezone);
 
   return `
     <section class="hero card">
@@ -162,12 +181,14 @@ function nowView(snap: Snapshot, units: Units): string {
       </div>
       <p class="lead">${escapeHtml(brief.headline)}</p>
       <p class="muted">${escapeHtml(wmoLabel(snap.current.weatherCode))} · Feels ${formatTemp(Math.max(snap.current.feelsF, hi), units)} · Heat index ${formatTemp(hi, units)}</p>
+      ${nowcast ? `<p class="nowcast">${escapeHtml(nowcast)}</p>` : ""}
     </section>
     <section class="strip" aria-label="Next hours">
       ${hours
         .map(
           (h) => `<article>
             <span>${escapeHtml(formatHour(h.time, snap.timezone))}</span>
+            <em class="wx" aria-hidden="true">${weatherIcon(h.weatherCode, true)}</em>
             <strong>${formatTemp(h.tempF, units)}</strong>
             <em>${h.pop}%</em>
           </article>`
@@ -207,11 +228,11 @@ function hourlyView(snap: Snapshot, units: Units): string {
       <div class="table">
         ${hours
           .map(
-            (h) => `<div class="row">
-              <span>${escapeHtml(formatWeekday(h.time, snap.timezone))} ${escapeHtml(formatTime(h.time, snap.timezone))}</span>
-              <span>${weatherIcon(h.weatherCode, true)} ${formatTemp(h.tempF, units)}</span>
-              <span>${h.pop}% · ${formatPrecip(h.precipIn, units)}</span>
-              <span>${formatWind(h.windMph, units)}</span>
+            (h) => `<div class="row hour-row">
+              <span class="when">${escapeHtml(formatWeekday(h.time, snap.timezone))} ${escapeHtml(formatTime(h.time, snap.timezone))}</span>
+              <span class="wx">${weatherIcon(h.weatherCode, true)} ${formatTemp(h.tempF, units)}</span>
+              <span class="pop">${h.pop}% · ${formatPrecip(h.precipIn, units)}</span>
+              <span class="wind">${formatWind(h.windMph, units)}</span>
             </div>`
           )
           .join("")}
@@ -221,18 +242,23 @@ function hourlyView(snap: Snapshot, units: Units): string {
 }
 
 function dailyView(snap: Snapshot, units: Units): string {
+  const ranges = dayRangeLayout(snap.days);
   return `
     <section class="card">
       <h2>10-day</h2>
       <div class="table">
         ${snap.days
-          .map((d) => {
-            const width = Math.max(8, Math.min(100, d.highF - d.lowF + 20));
-            return `<div class="row">
-              <span>${escapeHtml(formatWeekdayLong(d.date, snap.timezone))}</span>
-              <span>${weatherIcon(d.weatherCode, true)} ${escapeHtml(wmoLabel(d.weatherCode))}</span>
-              <span class="range"><i style="width:${width}%"></i> ${formatTemp(d.lowF, units)} / ${formatTemp(d.highF, units)}</span>
-              <span>${d.pop}% · UV ${d.uvMax.toFixed(0)}</span>
+          .map((d, i) => {
+            const range = ranges[i] ?? { left: 0, width: 40 };
+            return `<div class="row day-row">
+              <span class="when">${escapeHtml(formatWeekdayLong(d.date, snap.timezone))}</span>
+              <span class="wx">${weatherIcon(d.weatherCode, true)} ${escapeHtml(wmoLabel(d.weatherCode))}</span>
+              <span class="range">
+                <span class="lo">${formatTemp(d.lowF, units)}</span>
+                <span class="bar"><i style="margin-left:${range.left}%;width:${range.width}%"></i></span>
+                <span class="hi">${formatTemp(d.highF, units)}</span>
+              </span>
+              <span class="pop">${d.pop}% · UV ${d.uvMax.toFixed(0)}</span>
             </div>`;
           })
           .join("")}
@@ -321,11 +347,11 @@ function floodView(snap: Snapshot, units: Units): string {
       <h2>Flood and tide desk</h2>
       <p class="lead">${escapeHtml(flood.level)} flood signal (${flood.score}/100)</p>
       <ul>${flood.reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
-      <div class="table">
+      <div class="table tide-table">
         ${snap.tides
           .slice(0, 8)
           .map(
-            (t) => `<div class="row">
+            (t) => `<div class="row tide-row">
               <span>${t.type === "H" ? "High" : "Low"}</span>
               <span>${escapeHtml(formatTime(t.time, snap.timezone))}</span>
               <span>${t.heightFt.toFixed(2)} ft MLLW</span>

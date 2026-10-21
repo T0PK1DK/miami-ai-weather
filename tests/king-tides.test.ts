@@ -26,8 +26,9 @@ describe("neighborhood search", () => {
     expect(searchPlaces("xyz-nope")).toHaveLength(0);
   });
 
-  it("switches the pin when the current place is filtered out", () => {
+  it("switches the pin only when the query uniquely identifies another place", () => {
     expect(placeIdAfterFilter("kendall", "south-beach")).toBe("kendall");
+    expect(placeIdAfterFilter("k", "south-beach")).toBe("south-beach");
     expect(placeIdAfterFilter("beach", "south-beach")).toBe("south-beach");
     expect(placeIdAfterFilter("xyz-nope", "doral")).toBe("doral");
   });
