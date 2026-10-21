@@ -176,7 +176,11 @@ export const NEIGHBORHOODS: Neighborhood[] = [
 export const DEFAULT_PLACE_ID = "south-beach";
 
 export function findNeighborhood(id: string): Neighborhood {
-  return NEIGHBORHOODS.find((n) => n.id === id) ?? NEIGHBORHOODS[2]!;
+  return (
+    NEIGHBORHOODS.find((n) => n.id === id) ??
+    NEIGHBORHOODS.find((n) => n.id === DEFAULT_PLACE_ID) ??
+    NEIGHBORHOODS[0]!
+  );
 }
 
 export function searchNeighborhoods(query: string): Neighborhood[] {

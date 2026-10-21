@@ -17,6 +17,9 @@ Domain logic is pure and tested:
 - `src/lib/flood.ts` — compound flood score
 - `src/lib/activities.ts` — hour-scanned activity windows
 - `src/lib/weather.ts` — Open-Meteo + NWS + NOAA tides + RainViewer + NHC via `Promise.allSettled`
+- `src/lib/time.ts` — offset-free feed stamps parsed as `America/New_York`, plus stale/countdown labels
+- `src/lib/snapshot-store.ts` — last good `Snapshot` per neighborhood in `localStorage`
+- `src/lib/nowcast.ts` — 15-minute rain line and 10-day range-bar layout
 - `src/data/neighborhoods.ts` and `src/data/king-tides.ts`
 
 Docs: `README.md`, `docs/RESEARCH.md`. Tests: `tests/*.test.ts`. CI: `.github/workflows/ci.yml`.
@@ -31,16 +34,16 @@ npm test
 npm run dev
 ```
 
-`vite.config.ts` proxies `/api/nws` → `https://api.weather.gov` and `/api/nhc` → `https://www.nhc.noaa.gov` for local CORS. Production static hosting must rely on those APIs’ own CORS; NHC may fail and the UI already degrades.
+`vite.config.ts` proxies `/api/nws` → `https://api.weather.gov` and `/api/nhc` → `https://www.nhc.noaa.gov` for local CORS. Production static hosting must rely on those APIs’ own CORS; NHC may fail and the UI already degrades. The last good snapshot still paints when that happens.
 
 ## Next useful work (pick one lever)
 
-1. **Alerts geofence** — NWS zone/county filters for Miami-Dade / Broward / Monroe instead of a single point, and show expiration countdown.
+1. **Alerts geofence** — NWS zone/county filters for Miami-Dade / Broward / Monroe instead of a single point. Expiration countdown is already on the alert cards.
 2. **Tide chart** — sparkline from CO-OPS interval predictions, not just hi/lo, and flag when the next high crosses the NWS minor coastal flood threshold.
 3. **Radar layers** — satellite + rain + a simple legend; keep play/pause. RainViewer satellite paths are in the same `weather-maps.json`.
 4. **Spanish copy** — NWS Miami publishes En Español. Add a language toggle with the same briefing rules, no LLM.
-5. **Offline last snapshot** — persist the last good `Snapshot` and show stale-time when feeds fail.
-6. **More tests** — fixture `loadSnapshot` with mocked `fetch` so CI asserts parser shape without the network.
+5. ~~**Offline last snapshot**~~ — done. Last good `Snapshot` is stored per place; stale-time shows on reload and when feeds fail.
+6. ~~**More tests**~~ — done. `tests/weather-load.test.ts` fixtures `loadSnapshot` with mocked `fetch`.
 
 ## Invariants
 
@@ -49,5 +52,20 @@ npm run dev
 - Neighborhood flood sensitivity must keep coastal pins riskier than Doral-class inland pins.
 - Particle rain must honor `prefers-reduced-motion`.
 - Footer must keep official-source links and the “not a warning service” line.
+- Offline snapshots must never render a cached place against a different selected pin.
 
 After changes: `npm test && npm run build`, commit, and update this file if you add a feed or a view.
+
+## 2026-10-21 improvement pass
+
+Meaningful feature: **offline last snapshot** (lever 5). Each neighborhood’s last good `Snapshot` is written to `localStorage` (`miami-weather-snap:<placeId>`). Reload and feed failures keep the last briefing on screen with a stale-time banner. Wrong-place cache is ignored.
+
+Also in this pass:
+
+- Open-Meteo / NOAA wall-clock stamps parse as Eastern instead of the host timezone, so hourly labels stay honest in UTC CI and on non-Miami devices.
+- Radar Leaflet maps are torn down before every paint, so Reload / unit toggle no longer leak maps.
+- Alert cards show expiration countdown from the `ends` field that was already fetched.
+- Now view uses the unused 15-minute nowcast; daily range bars align to the week’s min/max.
+- Mobile: sticky filter + view chips, 44px tap targets, full-width place select, stacked hourly/daily rows, safe-area padding.
+- Particle loop does not schedule frames when `prefers-reduced-motion` is set.
+- Tests added for time parsing, snapshot revive, nowcast copy, stale UI, and mocked `loadSnapshot`.

@@ -15,9 +15,10 @@ export function formatWind(mph: number, units: Units): string {
 export function formatPrecip(inches: number, units: Units): string {
   if (units === "metric") {
     const mm = inches * 25.4;
-    return `${mm < 1 ? mm.toFixed(1) : Math.round(mm)} mm`;
+    return `${mm > 0 && mm < 1 ? mm.toFixed(1) : Math.round(mm)} mm`;
   }
-  return `${inches < 0.1 && inches > 0 ? inches.toFixed(2) : inches.toFixed(2)} in`;
+  if (inches === 0) return "0 in";
+  return `${inches.toFixed(2)} in`;
 }
 
 export function formatTime(date: Date, timeZone: string): string {
