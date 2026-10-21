@@ -1,0 +1,25 @@
+{
+  "name": "miami-ai-weather",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Mobile-first Miami weather helper with a live radar, particle rain, neighborhood filters, and a deterministic briefing engine.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "jsdom": "^27.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
+  }
+}
