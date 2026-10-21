@@ -161,8 +161,8 @@ export class WeatherApp {
       [snap.place.lat, snap.place.lon],
       8
     );
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap &copy; CARTO",
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics",
       maxZoom: 11
     }).addTo(this.map);
     L.circleMarker([snap.place.lat, snap.place.lon], {
