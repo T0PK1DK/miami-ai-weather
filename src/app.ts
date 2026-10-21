@@ -1,7 +1,8 @@
 import L from "leaflet";
-import { DEFAULT_PLACE_ID, findNeighborhood } from "./data/neighborhoods";
+import { DEFAULT_PLACE_ID, findNeighborhood, placeIdAfterFilter, searchNeighborhoods } from "./data/neighborhoods";
+import { escapeHtml } from "./lib/format";
 import { RainField } from "./lib/particles";
-import { clampFrame, radarTileUrl } from "./lib/radar";
+import { clampFrame } from "./lib/radar";
 import { isWetCode } from "./lib/wmo";
 import { loadSnapshot } from "./lib/weather";
 import { renderApp } from "./ui/render";
@@ -29,6 +30,7 @@ export class WeatherApp {
   private map: L.Map | null = null;
   private radarLayer: L.TileLayer | null = null;
   private radarTimer = 0;
+  private loadToken = 0;
   private state: State = {
     placeId: readStored(PLACE_KEY, DEFAULT_PLACE_ID),
     view: "now",
@@ -68,10 +70,7 @@ export class WeatherApp {
     });
     this.root.querySelector("#place-search")?.addEventListener("input", (event) => {
       this.state.query = (event.target as HTMLInputElement).value;
-      this.paint();
-      const input = this.root.querySelector("#place-search") as HTMLInputElement | null;
-      input?.focus();
-      input?.setSelectionRange(input.value.length, input.value.length);
+      this.syncPlaceOptions();
     });
     this.root.querySelector("#units")?.addEventListener("click", () => {
       this.state.units = this.state.units === "us" ? "metric" : "us";
@@ -99,17 +98,37 @@ export class WeatherApp {
     });
   }
 
+  private syncPlaceOptions(): void {
+    const select = this.root.querySelector("#place") as HTMLSelectElement | null;
+    if (!select) return;
+    const matches = searchNeighborhoods(this.state.query);
+    select.innerHTML = matches
+      .map((n) => `<option value="${n.id}">${escapeHtml(n.name)} · ${escapeHtml(n.area)}</option>`)
+      .join("");
+    const nextId = placeIdAfterFilter(this.state.query, this.state.placeId);
+    if (matches.length === 0) return;
+    select.value = nextId;
+    if (nextId !== this.state.placeId) {
+      this.state.placeId = nextId;
+      localStorage.setItem(PLACE_KEY, nextId);
+      void this.refresh();
+    }
+  }
+
   private async refresh(): Promise<void> {
+    const token = ++this.loadToken;
     this.state.loading = true;
     this.state.error = null;
     this.paint();
     try {
       const snap = await loadSnapshot(findNeighborhood(this.state.placeId));
+      if (token !== this.loadToken) return;
       this.state.snapshot = snap;
       this.state.loading = false;
       this.state.radarFrame = Math.max(0, snap.radar.frames.length - 1);
       this.paint();
     } catch (error) {
+      if (token !== this.loadToken) return;
       this.state.loading = false;
       this.state.error = error instanceof Error ? error.message : "Could not load weather.";
       this.paint();
@@ -138,9 +157,13 @@ export class WeatherApp {
     const el = this.root.querySelector("#radar-map");
     const snap = this.state.snapshot;
     if (!(el instanceof HTMLElement) || !snap) return;
-    this.map = L.map(el, { zoomControl: true, attributionControl: true }).setView([snap.place.lat, snap.place.lon], 9);
+    this.map = L.map(el, { zoomControl: true, attributionControl: true, minZoom: 5, maxZoom: 11 }).setView(
+      [snap.place.lat, snap.place.lon],
+      8
+    );
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap &copy; CARTO"
+      attribution: "&copy; OpenStreetMap &copy; CARTO",
+      maxZoom: 11
     }).addTo(this.map);
     L.circleMarker([snap.place.lat, snap.place.lon], {
       radius: 7,
@@ -162,9 +185,12 @@ export class WeatherApp {
     const frame = snap.radar.frames[clampFrame(this.state.radarFrame, snap.radar.frames.length)];
     if (!frame) return;
     if (this.radarLayer) this.map.removeLayer(this.radarLayer);
-    this.radarLayer = L.tileLayer(radarTileUrl(snap.radar.host, frame.path, 0, 0, 0).replace("/0/0/0/", "/{z}/{x}/{y}/"), {
+    this.radarLayer = L.tileLayer(`${snap.radar.host.replace(/\/$/, "")}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
       opacity: 0.72,
-      zIndex: 4
+      zIndex: 4,
+      maxNativeZoom: 7,
+      maxZoom: 11,
+      minZoom: 3
     }).addTo(this.map);
     const stamp = this.root.querySelector("#radar-stamp");
     if (stamp) stamp.textContent = `Radar ${frame.time.toLocaleTimeString("en-US", { timeZone: snap.timezone })}`;

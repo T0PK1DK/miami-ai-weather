@@ -187,3 +187,10 @@ export function searchNeighborhoods(query: string): Neighborhood[] {
     return hay.includes(q);
   });
 }
+
+/** If the current pin is not in the filtered list, jump to the first match. */
+export function placeIdAfterFilter(query: string, currentId: string): string {
+  const matches = searchNeighborhoods(query);
+  if (matches.some((n) => n.id === currentId)) return currentId;
+  return matches[0]?.id ?? currentId;
+}
