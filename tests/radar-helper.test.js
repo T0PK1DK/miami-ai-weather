@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
-const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../public/radar-helper.html", import.meta.url), "utf8");
 
 function mockCtx() {
   const grad = { addColorStop() {} };

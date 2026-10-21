@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const file = process.argv[2] || "index.html";
+const file = process.argv[2] || "public/radar-helper.html";
 const html = readFileSync(join(root, file), "utf8");
 
 const required = [
