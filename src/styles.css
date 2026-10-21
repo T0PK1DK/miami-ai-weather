@@ -235,6 +235,7 @@ main,
   border-radius: 14px;
   background: rgba(126, 224, 208, 0.1);
   border: 1px solid rgba(126, 224, 208, 0.22);
+  overflow-wrap: anywhere;
 }
 
 .strip {
@@ -359,6 +360,10 @@ main,
   align-items: center;
 }
 
+.day-row {
+  grid-template-columns: 1.35fr 1.15fr minmax(150px, 1.7fr) 0.85fr;
+}
+
 .tide-row {
   grid-template-columns: 0.8fr 1fr 1.2fr;
 }
@@ -456,12 +461,19 @@ a {
 
 @media (max-width: 720px) {
   .row,
-  .hour-row,
-  .day-row {
+  .hour-row {
     grid-template-columns: 1fr auto;
     grid-template-areas:
       "when wx"
       "pop wind";
+  }
+
+  .day-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "when wx"
+      "pop pop"
+      "range range";
   }
 
   .row .when,
@@ -486,16 +498,14 @@ a {
   }
 
   .row .wind,
-  .hour-row .wind,
-  .day-row .range {
+  .hour-row .wind {
     grid-area: wind;
     text-align: right;
   }
 
   .day-row .range {
-    grid-column: 1 / -1;
-    grid-area: auto;
-    margin-top: 4px;
+    grid-area: range;
+    margin-top: 2px;
   }
 
   .tide-row {

@@ -66,6 +66,7 @@ Also in this pass:
 - Radar Leaflet maps are torn down before every paint, so Reload / unit toggle no longer leak maps.
 - Alert cards show expiration countdown from the `ends` field that was already fetched.
 - Now view uses the unused 15-minute nowcast; daily range bars align to the week’s min/max.
+- Place search no longer jumps on the first letter (typing “k” used to load Brickell). It waits for a unique 3+ character match or an explicit select.
 - Mobile: sticky filter + view chips, 44px tap targets, full-width place select, stacked hourly/daily rows, safe-area padding.
 - Particle loop does not schedule frames when `prefers-reduced-motion` is set.
 - Tests added for time parsing, snapshot revive, nowcast copy, stale UI, and mocked `loadSnapshot`.
