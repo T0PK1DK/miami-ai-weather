@@ -59,7 +59,7 @@ export function renderApp(input: {
       </div>
       <div class="controls">
         <label class="sr-only" for="place-search">Filter neighborhoods</label>
-        <input id="place-search" type="search" placeholder="Filter places" value="${escapeHtml(input.query)}" />
+        <input id="place-search" class="search" type="text" autocomplete="off" placeholder="Filter places" value="${escapeHtml(input.query)}" />
         <label class="sr-only" for="place">Neighborhood</label>
         <select id="place">
           ${placeOptions
@@ -69,8 +69,8 @@ export function renderApp(input: {
             )
             .join("")}
         </select>
-        <button type="button" id="units" class="ghost">${input.units === "us" ? "°F" : "°C"}</button>
-        <button type="button" id="refresh" class="ghost">Refresh</button>
+        <button type="button" id="units" class="ghost" aria-label="Toggle units">${input.units === "us" ? "°F" : "°C"}</button>
+        <button type="button" id="refresh" class="ghost" aria-label="Reload conditions">Reload</button>
       </div>
     </header>
     <nav class="chips" aria-label="Views">

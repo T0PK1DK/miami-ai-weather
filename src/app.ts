@@ -110,6 +110,7 @@ export class WeatherApp {
     select.value = nextId;
     if (nextId !== this.state.placeId) {
       this.state.placeId = nextId;
+      this.state.query = "";
       localStorage.setItem(PLACE_KEY, nextId);
       void this.refresh();
     }

@@ -95,7 +95,7 @@ main,
 
 .controls {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   margin: 16px 0 12px;
 }
@@ -109,6 +109,12 @@ main,
   border-radius: 999px;
   padding: 10px 14px;
   font: inherit;
+  min-width: 0;
+}
+
+.controls .search {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .controls input {
