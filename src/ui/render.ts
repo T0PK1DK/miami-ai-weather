@@ -18,7 +18,7 @@ import { dayRangeLayout, describeNowcast } from "../lib/nowcast";
 import { formatTimeLeft, staleAge } from "../lib/time";
 import { uvCategory } from "../lib/uv";
 import { currentUv } from "../lib/weather";
-import { isWetCode, weatherIcon, wmoLabel } from "../lib/wmo";
+import { isWetCode, skyMood, weatherIcon, wmoLabel } from "../lib/wmo";
 import { isHurricaneSeason, nextKingTideWindow } from "../data/king-tides";
 import { NEIGHBORHOODS } from "../data/neighborhoods";
 import type { Snapshot, Units, ViewId } from "../types";
@@ -56,13 +56,17 @@ export function renderApp(input: {
   const snap = input.snapshot && input.snapshot.place.id === input.placeId ? input.snapshot : null;
   const stale = Boolean(snap && (input.fromCache || input.loading));
 
+  const sky = snap ? skyMood(snap.current.weatherCode, snap.current.isDay) : "day";
+
   return `
+    <div class="shell" data-sky="${sky}">
     <a class="skip" href="#main">Skip to briefing</a>
     <canvas id="rain" class="rain" aria-hidden="true"></canvas>
     <header class="top">
       <div class="brand">
         <p class="kicker">Miami AI Weather</p>
-        <h1>South Florida, in plain language</h1>
+        <h1>Biscayne to the Glades</h1>
+        <p class="brand-sub">South Florida, in plain language</p>
       </div>
     </header>
     <div class="sticky-bar">
@@ -102,6 +106,7 @@ export function renderApp(input: {
       <p>Forecast from <a href="https://open-meteo.com/">Open-Meteo</a>. Alerts from <a href="https://www.weather.gov/mfl/">NWS Miami</a>. Tides from <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>. Radar from <a href="https://www.rainviewer.com/api.html">RainViewer</a>. Tropics from <a href="https://www.nhc.noaa.gov/">NHC</a>.</p>
       <p>This is a helper, not a warning service. For watches and warnings use NWS and NHC.</p>
     </footer>
+    </div>
   `;
 }
 
@@ -170,17 +175,25 @@ function nowView(snap: Snapshot, units: Units): string {
   const icon = weatherIcon(snap.current.weatherCode, snap.current.isDay);
   const hours = snap.hours.filter((h) => h.time >= new Date(snap.current.time.getTime() - 30 * 60 * 1000)).slice(0, 14);
   const nowcast = describeNowcast(snap.nowcast, snap.current.time, snap.timezone);
+  const today = snap.days[0];
 
   return `
     <section class="hero card">
       <p class="place">${escapeHtml(snap.place.name)} · ${escapeHtml(snap.place.area)}</p>
       <p class="greeting">${escapeHtml(brief.greeting)}</p>
       <div class="temp-row">
-        <p class="temp">${formatTemp(snap.current.tempF, units)}<span>${formatTempUnit(units)}</span></p>
+        <div class="temp-block">
+          <p class="temp">${formatTemp(snap.current.tempF, units)}<span>${formatTempUnit(units)}</span></p>
+          ${
+            today
+              ? `<p class="hi-lo">H ${formatTemp(today.highF, units)} · L ${formatTemp(today.lowF, units)}</p>`
+              : ""
+          }
+        </div>
         <p class="icon" aria-hidden="true">${icon}</p>
       </div>
       <p class="lead">${escapeHtml(brief.headline)}</p>
-      <p class="muted">${escapeHtml(wmoLabel(snap.current.weatherCode))} · Feels ${formatTemp(Math.max(snap.current.feelsF, hi), units)} · Heat index ${formatTemp(hi, units)}</p>
+      <p class="muted meta">${escapeHtml(wmoLabel(snap.current.weatherCode))} · Feels ${formatTemp(Math.max(snap.current.feelsF, hi), units)} · Heat index ${formatTemp(hi, units)}</p>
       ${nowcast ? `<p class="nowcast">${escapeHtml(nowcast)}</p>` : ""}
     </section>
     <section class="strip" aria-label="Next hours">

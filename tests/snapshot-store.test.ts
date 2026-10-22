@@ -96,6 +96,41 @@ describe("offline snapshot UI", () => {
     expect(html).not.toMatch(/King|Leonard/i);
   });
 
+  it("paints the Miami hero with high and low from the snapshot", () => {
+    const html = renderApp({
+      snapshot: sampleSnapshot({
+        days: [
+          {
+            date: new Date("2026-10-21T00:00:00-04:00"),
+            highF: 88,
+            lowF: 76,
+            feelsMaxF: 96,
+            precipIn: 0.1,
+            pop: 40,
+            weatherCode: 2,
+            uvMax: 8,
+            windMaxMph: 14,
+            sunrise: new Date("2026-10-21T07:24:00-04:00"),
+            sunset: new Date("2026-10-21T18:48:00-04:00")
+          }
+        ]
+      }),
+      view: "now",
+      units: "us",
+      placeId: "south-beach",
+      query: "",
+      loading: false,
+      error: null,
+      fromCache: false,
+      radarPlaying: false,
+      clock: new Date("2026-10-21T16:00:00-04:00")
+    });
+    expect(html).toMatch(/Biscayne to the Glades/);
+    expect(html).toMatch(/data-sky="day"/);
+    expect(html).toMatch(/H 88°/);
+    expect(html).toMatch(/L 76°/);
+  });
+
   it("does not show another place's cached snapshot", () => {
     const html = renderApp({
       snapshot: sampleSnapshot(),

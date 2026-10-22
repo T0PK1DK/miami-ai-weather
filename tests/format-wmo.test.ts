@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compass, escapeHtml, formatPrecip, formatTemp, formatWind } from "../src/lib/format";
-import { isThunderCode, isWetCode, wmoLabel } from "../src/lib/wmo";
+import { isThunderCode, isWetCode, skyMood, wmoLabel } from "../src/lib/wmo";
 import { uvCategory } from "../src/lib/uv";
 import { clampFrame, radarTileUrl } from "../src/lib/radar";
 import { currentUv } from "../src/lib/weather";
@@ -26,6 +26,11 @@ describe("WMO and UV", () => {
     expect(isWetCode(2)).toBe(false);
     expect(uvCategory(11).level).toBe("extreme");
     expect(uvCategory(1).level).toBe("low");
+    expect(skyMood(95, true)).toBe("storm");
+    expect(skyMood(61, true)).toBe("rain");
+    expect(skyMood(45, false)).toBe("fog");
+    expect(skyMood(0, true)).toBe("day");
+    expect(skyMood(1, false)).toBe("night");
   });
 });
 

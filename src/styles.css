@@ -1,16 +1,19 @@
 :root {
   color-scheme: dark;
-  --bg0: #04151c;
-  --bg1: #0b2a33;
-  --ink: #f4f1ea;
-  --muted: #b7c7c4;
-  --card: rgba(8, 28, 34, 0.72);
-  --line: rgba(244, 241, 234, 0.12);
+  --bg0: #03141c;
+  --bg1: #0a2c36;
+  --ink: #f6f1e8;
+  --muted: #b6c8c6;
+  --card: rgba(7, 26, 32, 0.7);
+  --line: rgba(246, 241, 232, 0.12);
   --coral: #ff7a6e;
-  --gold: #f4c38b;
+  --gold: #f3c89a;
   --foam: #7ee0d0;
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  --bay: #1c6b74;
+  --shadow: 0 22px 56px rgba(0, 8, 12, 0.38);
   --pad: max(16px, env(safe-area-inset-left));
+  --sky-a: #1a5b63;
+  --sky-b: #8a3e38;
 }
 
 * {
@@ -21,16 +24,51 @@ html,
 body {
   margin: 0;
   min-height: 100dvh;
-  background:
-    radial-gradient(1200px 700px at 10% -10%, #1a5b63 0%, transparent 50%),
-    radial-gradient(900px 600px at 110% 10%, #7a3b3b 0%, transparent 42%),
-    linear-gradient(180deg, #08242c 0%, var(--bg0) 55%, #021016 100%);
   color: var(--ink);
   font-family: "DM Sans", system-ui, sans-serif;
 }
 
 body {
   min-height: 100dvh;
+  background:
+    radial-gradient(1100px 640px at 8% -12%, var(--sky-a) 0%, transparent 52%),
+    radial-gradient(880px 560px at 108% 6%, var(--sky-b) 0%, transparent 44%),
+    linear-gradient(180deg, #08242c 0%, var(--bg0) 58%, #020c11 100%);
+}
+
+.shell[data-sky="night"] {
+  --sky-a: #16364a;
+  --sky-b: #3d2a4a;
+}
+
+.shell[data-sky="rain"] {
+  --sky-a: #24586a;
+  --sky-b: #2a3d4a;
+}
+
+.shell[data-sky="storm"] {
+  --sky-a: #2a4a5a;
+  --sky-b: #6a2f38;
+}
+
+.shell[data-sky="fog"] {
+  --sky-a: #4a6468;
+  --sky-b: #3d4a4e;
+}
+
+.shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
 }
 
 #app {
@@ -78,33 +116,41 @@ main,
 .brand h1,
 .temp,
 .lead,
-.card h2 {
+.card h2,
+.hi-lo {
   font-family: "Fraunces", Georgia, serif;
 }
 
 .kicker {
-  margin: 0 0 4px;
-  letter-spacing: 0.12em;
+  margin: 0 0 6px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--foam);
 }
 
 .brand h1 {
   margin: 0;
-  font-size: clamp(1.45rem, 5vw, 2.4rem);
-  line-height: 1.05;
+  font-size: clamp(1.7rem, 6vw, 2.7rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.brand-sub {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.98rem;
 }
 
 .sticky-bar {
   position: sticky;
   top: 0;
   z-index: 4;
-  margin: 12px calc(-1 * max(16px, env(safe-area-inset-left))) 0;
+  margin: 14px calc(-1 * max(16px, env(safe-area-inset-left))) 0;
   padding: 8px max(16px, env(safe-area-inset-left)) 0;
   padding-right: max(16px, env(safe-area-inset-right));
-  background: linear-gradient(180deg, rgba(8, 36, 44, 0.96) 0%, rgba(8, 36, 44, 0.88) 70%, rgba(8, 36, 44, 0.4) 100%);
-  backdrop-filter: blur(18px);
+  background: linear-gradient(180deg, rgba(3, 20, 28, 0.96) 0%, rgba(3, 20, 28, 0.86) 68%, rgba(3, 20, 28, 0.28) 100%);
+  backdrop-filter: blur(20px);
 }
 
 .controls {
@@ -117,7 +163,7 @@ main,
 .controls select,
 .ghost {
   border: 1px solid var(--line);
-  background: rgba(4, 21, 28, 0.6);
+  background: rgba(4, 21, 28, 0.62);
   color: var(--ink);
   border-radius: 999px;
   padding: 12px 14px;
@@ -180,14 +226,21 @@ main,
 .alert {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: 24px;
   box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(18px);
 }
 
 .card {
-  padding: 18px;
+  padding: 20px;
   margin-bottom: 14px;
+}
+
+.hero {
+  background:
+    linear-gradient(180deg, rgba(126, 224, 208, 0.08), transparent 42%),
+    var(--card);
+  border-color: rgba(243, 200, 154, 0.16);
 }
 
 .hero .place,
@@ -197,21 +250,34 @@ main,
   color: var(--muted);
 }
 
+.place {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
 .greeting {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
+  font-size: 1.02rem;
 }
 
 .temp-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
+  margin-top: 4px;
+}
+
+.temp-block {
+  min-width: 0;
 }
 
 .temp {
-  margin: 4px 0;
-  font-size: clamp(3.8rem, 18vw, 7rem);
-  line-height: 0.9;
+  margin: 2px 0 0;
+  font-size: clamp(4.4rem, 20vw, 7.4rem);
+  line-height: 0.86;
+  letter-spacing: -0.05em;
 }
 
 .temp span {
@@ -219,20 +285,31 @@ main,
   margin-left: 6px;
 }
 
+.hi-lo {
+  margin: 8px 0 0;
+  font-size: 1.15rem;
+  color: var(--gold);
+}
+
 .icon {
-  font-size: 3rem;
-  margin: 0;
+  font-size: 3.2rem;
+  margin: 0 4px 10px 0;
 }
 
 .lead {
-  font-size: 1.25rem;
+  font-size: 1.32rem;
   line-height: 1.35;
+  margin: 14px 0 0;
+}
+
+.meta {
+  margin-top: 8px;
 }
 
 .nowcast {
-  margin: 10px 0 0;
-  padding: 10px 12px;
-  border-radius: 14px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 16px;
   background: rgba(126, 224, 208, 0.1);
   border: 1px solid rgba(126, 224, 208, 0.22);
   overflow-wrap: anywhere;
@@ -241,7 +318,7 @@ main,
 .strip {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(68px, 1fr);
+  grid-auto-columns: minmax(72px, 1fr);
   gap: 8px;
   overflow-x: auto;
   margin: 0 0 14px;
@@ -252,21 +329,21 @@ main,
 .strip article {
   background: rgba(8, 28, 34, 0.55);
   border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 10px 8px;
+  border-radius: 18px;
+  padding: 12px 8px;
   text-align: center;
 }
 
 .strip strong {
   display: block;
-  font-size: 1.15rem;
+  font-size: 1.2rem;
 }
 
 .strip .wx {
   display: block;
   font-style: normal;
-  font-size: 1.05rem;
-  margin: 2px 0;
+  font-size: 1.1rem;
+  margin: 4px 0;
 }
 
 .strip em {
@@ -283,7 +360,7 @@ main,
 }
 
 .stat {
-  padding: 12px 14px;
+  padding: 13px 14px;
 }
 
 .stat span {
@@ -300,6 +377,7 @@ main,
 .brief h2,
 .card h2 {
   margin-top: 0;
+  letter-spacing: -0.02em;
 }
 
 .brief article {

@@ -54,3 +54,11 @@ export function weatherIcon(code: number, isDay: boolean): string {
   if (code === 2) return isDay ? "⛅" : "☁️";
   return isDay ? "☀️" : "🌙";
 }
+
+/** Visual sky mood for the Miami shell — presentation only. */
+export function skyMood(code: number, isDay: boolean): "storm" | "rain" | "fog" | "day" | "night" {
+  if (isThunderCode(code)) return "storm";
+  if (isWetCode(code)) return "rain";
+  if (code === 45 || code === 48) return "fog";
+  return isDay ? "day" : "night";
+}
