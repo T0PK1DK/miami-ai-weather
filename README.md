@@ -23,11 +23,13 @@ There is no account, no PIN, and no deploy step in this repo.
 
 ## What it does
 
-- **Now** — large temperature, hourly strip with icons, Rothfusz heat index, 15-minute nowcast line, and a deterministic AI briefing
+- **Now** — large temperature, today's high/low, hourly strip with icons, Rothfusz heat index for the next few hours, a 6-hour rain clock, hurricane-season status, 15-minute nowcast line, and a deterministic AI briefing
 - **Radar** — RainViewer mosaic on a dark map, play/pause, pin on the selected place
 - **Particle rain** — canvas drops scale with live precipitation and wind, and stay off when `prefers-reduced-motion` is set
 - **Filterable views** — neighborhood search plus nine desks (beach, heat, flood, tropics, play) in a sticky mobile toolbar
+- **Heat desk** — Rothfusz heat index now, plus the upcoming-hour peak (not a morning that already passed)
 - **Flood desk** — Virginia Key tides plus king-tide windows and a compound-flood score
+- **Tropics desk** — early / peak / late Atlantic season, days left, and the NHC active-storm list
 - **Play desk** — hour-by-hour scores for beach, run, commute, patio, boat, and kids
 - **Offline last snapshot** — the last good feed for each neighborhood is saved locally and shown with a stale-time if live feeds miss
 - **Alerts** — NWS headlines stay at the top of every desk, with an expiration countdown when the feed includes an end time
@@ -41,8 +43,9 @@ There is no account, no PIN, and no deploy step in this repo.
 | Local office | [NWS Miami](https://www.weather.gov/mfl/) |
 | Tides | [NOAA CO-OPS](https://tidesandcurrents.noaa.gov/) |
 | Radar | [RainViewer API](https://www.rainviewer.com/api.html) |
-| Tropics | [NHC](https://www.nhc.noaa.gov/) |
+| Tropics | [NHC CurrentStorms](https://www.nhc.noaa.gov/) plus climatology (June 1–November 30; peak mid-August to mid-October). No new paid feed. |
 | Heat method | [NWS heat index equation](https://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml) |
+| Rain timing | Same Open-Meteo `minutely_15` precipitation, with hourly amounts if that series is empty |
 
 ## Docs
 
@@ -51,7 +54,7 @@ There is no account, no PIN, and no deploy step in this repo.
 
 ## Tests
 
-`npm test` covers heat index branches, flood scoring, briefing leads, activity windows, king-tide dates, formatters, Eastern-time feed parsing, snapshot revive, nowcast copy, and a mocked `loadSnapshot` run that never hits the network. CI runs tests and `npm run build`.
+`npm test` covers heat index branches, upcoming-hour heat, flood scoring, briefing leads, activity windows, king-tide dates, hurricane-season phases, rain-clock timing, formatters, Eastern-time feed parsing, snapshot revive, nowcast copy, and a mocked `loadSnapshot` run that never hits the network. CI runs tests and `npm run build`. Helper coverage is in `tests/radar-helper.test.js`.
 
 ## Standalone radar helper
 

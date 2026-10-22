@@ -56,6 +56,12 @@ npm run dev
 
 After changes: `npm test && npm run build`, commit, and update this file if you add a feed or a view.
 
+## 2026-10-22 overnight pass
+
+- **Look** — Biscayne-to-sunset shell, larger hero type, today's high/low.
+- **Awareness** — no new network feeds. Rain clock folds existing Open-Meteo 15-minute precip (hourly fallback). Heat desk uses upcoming Rothfusz hours. Tropics desk adds early/peak/late climatology on top of `CurrentStorms.json`.
+- Offline snapshots still revive without new `Snapshot` fields; rain/heat/season are derived at paint time.
+
 ## 2026-10-21 improvement pass
 
 Meaningful feature: **offline last snapshot** (lever 5). Each neighborhood’s last good `Snapshot` is written to `localStorage` (`miami-weather-snap:<placeId>`). Reload and feed failures keep the last briefing on screen with a stale-time banner. Wrong-place cache is ignored.
