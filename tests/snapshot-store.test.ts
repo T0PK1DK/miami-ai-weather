@@ -225,6 +225,8 @@ describe("offline snapshot UI", () => {
     expect(html).toMatch(/data-sky="day"/);
     expect(html).toMatch(/H 88°/);
     expect(html).toMatch(/L 76°/);
+    expect(html).toMatch(/enterkeyhint="search"/);
+    expect(html).toMatch(/inputmode="search"/);
   });
 
   it("does not show another place's cached snapshot", () => {

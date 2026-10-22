@@ -74,7 +74,7 @@ export function renderApp(input: {
     <div class="sticky-bar">
       <div class="controls">
         <label class="sr-only" for="place-search">Filter neighborhoods</label>
-        <input id="place-search" class="search" type="search" autocomplete="off" placeholder="Filter places" value="${escapeHtml(input.query)}" />
+        <input id="place-search" class="search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" inputmode="search" placeholder="Filter places" value="${escapeHtml(input.query)}" />
         <label class="sr-only" for="place">Neighborhood</label>
         <select id="place">
           ${placeOptions
