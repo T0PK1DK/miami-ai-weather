@@ -123,4 +123,35 @@ describe("loadSnapshot", () => {
     );
     await expect(loadSnapshot(southBeach)).rejects.toThrow(/Forecast feed is down/);
   });
+
+  it("sends the NWS User-Agent on the alerts fallback", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("open-meteo.com/v1/forecast")) return jsonResponse(forecastFixture());
+      if (url.includes("api.weather.gov/alerts")) {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        expect(headers["User-Agent"]).toMatch(/miami-ai-weather/);
+        return jsonResponse({
+          features: [
+            {
+              id: "alert-1",
+              properties: {
+                event: "Rip Current Statement",
+                severity: "Moderate",
+                urgency: "Expected",
+                headline: "Rip Current Statement for Atlantic beaches",
+                ends: "2026-10-21T20:00:00-04:00"
+              }
+            }
+          ]
+        });
+      }
+      return jsonResponse({}, false);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const snap = await loadSnapshot(southBeach, new Date("2026-10-21T14:05:00-04:00"));
+    expect(snap.alerts[0]?.event).toBe("Rip Current Statement");
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("api.weather.gov/alerts"))).toBe(true);
+  });
 });

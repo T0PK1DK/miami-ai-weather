@@ -22,7 +22,7 @@ import { uvCategory } from "../lib/uv";
 import { currentUv } from "../lib/weather";
 import { isWetCode, skyMood, weatherIcon, wmoLabel } from "../lib/wmo";
 import { nextKingTideWindow } from "../data/king-tides";
-import { NEIGHBORHOODS } from "../data/neighborhoods";
+import { searchNeighborhoods } from "../data/neighborhoods";
 import type { Snapshot, Units, ViewId } from "../types";
 
 export const VIEWS: Array<{ id: ViewId; label: string }> = [
@@ -50,11 +50,7 @@ export function renderApp(input: {
   clock?: Date;
 }): string {
   const clock = input.clock ?? new Date();
-  const placeOptions = NEIGHBORHOODS.filter((n) => {
-    const q = input.query.trim().toLowerCase();
-    if (!q) return true;
-    return `${n.name} ${n.area} ${n.tags.join(" ")}`.toLowerCase().includes(q);
-  });
+  const placeOptions = searchNeighborhoods(input.query);
   const snap = input.snapshot && input.snapshot.place.id === input.placeId ? input.snapshot : null;
   const stale = Boolean(snap && (input.fromCache || input.loading));
 
@@ -398,7 +394,7 @@ function heatView(snap: Snapshot, units: Units): string {
 
 function floodView(snap: Snapshot, units: Units): string {
   const next6 = snap.hours
-    .filter((h) => h.time >= snap.current.time)
+    .filter((h) => h.time.getTime() >= snap.current.time.getTime() - 20 * 60 * 1000)
     .slice(0, 6)
     .reduce((s, h) => s + h.precipIn, 0);
   const flood = assessFlood({

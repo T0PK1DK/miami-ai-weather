@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isHurricaneSeason, isKingTideWindow, nextKingTideWindow } from "../src/data/king-tides";
-import { placeIdAfterFilter, searchNeighborhoods as searchPlaces } from "../src/data/neighborhoods";
+import { findNeighborhood, placeIdAfterFilter, searchNeighborhoods as searchPlaces } from "../src/data/neighborhoods";
+import { renderApp } from "../src/ui/render";
+import type { Snapshot } from "../src/types";
 
 describe("king tides and season", () => {
   it("marks the late-October 2026 window", () => {
@@ -31,5 +33,61 @@ describe("neighborhood search", () => {
     expect(placeIdAfterFilter("k", "south-beach")).toBe("south-beach");
     expect(placeIdAfterFilter("beach", "south-beach")).toBe("south-beach");
     expect(placeIdAfterFilter("xyz-nope", "doral")).toBe("doral");
+  });
+
+  it("keeps coast matches in the painted select, same as searchNeighborhoods", () => {
+    const snap = {
+      fetchedAt: new Date("2026-10-21T14:00:00-04:00"),
+      place: findNeighborhood("south-beach"),
+      timezone: "America/New_York",
+      current: {
+        time: new Date("2026-10-21T14:00:00-04:00"),
+        tempF: 84,
+        feelsF: 90,
+        humidity: 68,
+        precipIn: 0,
+        weatherCode: 2,
+        windMph: 12,
+        gustMph: 16,
+        windDir: 90,
+        pressureMb: 1014,
+        cloud: 40,
+        isDay: true,
+        visibilityMi: 8
+      },
+      hours: [],
+      days: [],
+      nowcast: [],
+      alerts: [],
+      tides: [],
+      storms: [],
+      aqi: 30,
+      waveFt: 2,
+      radar: { host: "", frames: [] },
+      sources: {
+        forecast: true,
+        air: true,
+        marine: true,
+        alerts: true,
+        tides: true,
+        storms: true,
+        radar: false
+      }
+    } as Snapshot;
+    const html = renderApp({
+      snapshot: snap,
+      view: "now",
+      units: "us",
+      placeId: "south-beach",
+      query: "atlantic",
+      loading: false,
+      error: null,
+      fromCache: false,
+      radarPlaying: false,
+      clock: snap.current.time
+    });
+    expect(searchPlaces("atlantic").some((n) => n.id === "south-beach")).toBe(true);
+    expect(html).toMatch(/value="south-beach"/);
+    expect(html).toMatch(/South Beach/);
   });
 });

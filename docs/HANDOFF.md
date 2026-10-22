@@ -61,6 +61,7 @@ After changes: `npm test && npm run build`, commit, and update this file if you 
 - **Look** — Biscayne-to-sunset shell, larger hero type, today's high/low.
 - **Awareness** — no new network feeds. Rain clock folds existing Open-Meteo 15-minute precip (hourly fallback). Heat desk uses upcoming Rothfusz hours. Tropics desk adds early/peak/late climatology on top of `CurrentStorms.json`.
 - Offline snapshots still revive without new `Snapshot` fields; rain/heat/season are derived at paint time.
+- **Bugs** — place search and the painted select now share `searchNeighborhoods` (coast tags). Nowcast looks 6 hours ahead. NWS fetches send a User-Agent. Flood's next-6h rain includes the current hour. Heat peak ignores hours that already passed.
 
 ## 2026-10-21 improvement pass
 

@@ -34,6 +34,19 @@ describe("describeNowcast", () => {
   it("returns null when the feed is empty", () => {
     expect(describeNowcast([], now, tz)).toBeNull();
   });
+
+  it("still sees rain three hours out instead of calling the next hour dry", () => {
+    const line = describeNowcast(
+      [
+        { time: now, precipIn: 0 },
+        { time: new Date("2026-10-21T17:00:00-04:00"), precipIn: 0.08 }
+      ],
+      now,
+      tz
+    );
+    expect(line).toMatch(/5\s*PM/);
+    expect(line).toMatch(/0\.08/);
+  });
 });
 
 describe("dayRangeLayout", () => {
