@@ -1,0 +1,16 @@
+{
+  "name": "miami-ai-weather",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "One-file Miami radar helper with live NEXRAD, GOES-East, and a deterministic fallback model.",
+  "scripts": {
+    "test": "vitest run",
+    "build": "node scripts/check-helper.mjs",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0",
+    "vitest": "^3.2.4"
+  }
+}

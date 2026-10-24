@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0b0a09">
 <meta name="color-scheme" content="dark">
 <title>Miami Weather</title>
+<meta name="description" content="South Florida radar helper: live NEXRAD, GOES-East GeoColor, wind, and a short nowcast insight. One file, no build.">
 <style>
 /* Tokens match NARD 2.0 (public/nard-2.0/css/nard.css) so this drops into Nard as-is.
    Radar/cloud colours are data colours and live in the JS ramps, not here. */
@@ -60,8 +61,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 /* ---- mode chips ---- */
 .modes { display: flex; gap: 4px; margin: 12px auto 0; padding: 3px; border-radius: 999px; background: var(--glass);
   border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
-.mode { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 999px; font-size: 12px; color: var(--ink-2);
-  transition: color .2s, background .2s; }
+.mode { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; min-height: 44px; border-radius: 999px; font-size: 12px; color: var(--ink-2);
+  transition: color .2s, background .2s; touch-action: manipulation; }
 .mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .mode[aria-pressed=true] { color: var(--bg); background: var(--ink); }
 
@@ -73,14 +74,14 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .ramp { width: 150px; height: 6px; border-radius: 3px; }
 .ramp-l { display: flex; justify-content: space-between; font: 8px/1 var(--mono); letter-spacing: .08em; color: var(--ink-3); text-transform: uppercase; }
 .legend .lbl { font-size: 8px; letter-spacing: .12em; }
-.fab { pointer-events: auto; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--glass);
+.fab { pointer-events: auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--glass);
   border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--ink-2); }
 .fab svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 
 /* ---- bottom panel ---- */
 .panel { border-radius: 22px; background: var(--glass); border: 1px solid var(--line); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
   padding: 4px 14px 12px; display: grid; gap: 10px; }
-.grab { justify-self: center; width: 44px; height: 14px; display: grid; place-items: center; }
+.grab { justify-self: center; width: 44px; height: 44px; display: grid; place-items: center; touch-action: manipulation; }
 .grab::before { content: ""; width: 34px; height: 4px; border-radius: 2px; background: var(--line); background: rgba(233,225,214,.18); }
 .ins-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ins-h .lbl { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); }
@@ -94,8 +95,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
   background: rgba(233,225,214,.03); transition: border-color .3s, color .3s; }
 .tag.hot { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .tag.zap { color: #f1ead8; border-color: rgba(214,206,255,.45); }
-.tl { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; }
-.play { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--ink); }
+.tl { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: center; }
+.play { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--ink); touch-action: manipulation; }
 .play svg { width: 13px; height: 13px; fill: currentColor; }
 .tl-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .tl-h .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -121,6 +122,9 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 }
 @media (max-height: 700px) {
   .stats { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live i { animation: none; }
 }
 </style>
 </head>
@@ -224,8 +228,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
    growth/decay envelopes. The radar colours, GeoColor clouds, wind outflow, rain density,
    lightning and the insight text are all read from that one field, so they always agree.
 
-   Conditions in: SNAPSHOT below, ?live=1 (Open-Meteo), or Nard via
-   window.NardWeather.set({...}) / postMessage({type:"nard-weather", data}).
+   Conditions in: SNAPSHOT below, Open-Meteo (on by default; ?offline=1 skips the
+   network), or Nard via window.NardWeather.set({...}) / postMessage({type:"nard-weather", data}).
    ===================================================================================== */
 
 const SNAPSHOT = {
@@ -808,11 +812,14 @@ function drawPin(rt) {
 }
 
 /* ---------------- time ---------------- */
-const T0 = Date.now();
+function nowMs() { return Date.now(); }
 function clock(min) {
-  return new Date(T0 + min * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ });
+  return new Date(nowMs() + min * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ });
 }
-const clock5 = min => clock(Math.round((min + (T0 / 60000) % 5) / 5) * 5 - (T0 / 60000) % 5);
+const clock5 = min => {
+  const t = nowMs() / 60000;
+  return clock(Math.round((min + t % 5) / 5) * 5 - t % 5);
+};
 
 /* ---------------- series + insight ---------------- */
 function rateAtFocus(t, boil = 0) {
@@ -971,7 +978,7 @@ const ramp = document.getElementById("ramp"), rctx = ramp.getContext("2d");
 function drawLegend() {
   rctx.clearRect(0, 0, 300, 12);
   const T = document.getElementById("legT"), L = document.getElementById("legL");
-  if (mode === "radar" || mode === "wind" && false) {
+  if (mode === "radar") {
     for (let i = 0; i < 300; i++) { rctx.fillStyle = lutCss(17 + i / 300 * 50); rctx.fillRect(i, 0, 1, 12); }
     T.textContent = radarReadable() ? "NEXRAD · live · dBZ" : radarLive() ? "NEXRAD · live" : "Precip · modeled"; L.innerHTML = "<span>Light</span><span>Mod</span><span>Heavy</span><span>Extreme</span>";
   } else if (mode === "geo") {
@@ -1189,7 +1196,7 @@ async function findGoes() {
   const C = [["GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level7"], ["GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level6"],
     ["GOES-East_ABI_Band2_Red_Visible_1km", "GoogleMapsCompatible_Level8"], ["GOES-East_ABI_Band13_Clean_Infrared", "GoogleMapsCompatible_Level6"]];
   const now10 = Math.floor(Date.now() / 600000) * 600000;
-  for (const [layer, set] of C) for (const lag of [20, 40, 70]) {
+  for (const [layer, set] of C) for (const lag of [20, 40, 70, 100, 130, 180]) {
     const ms = now10 - lag * 60000, ext = layer.includes("GeoColor") ? "jpg" : "png";
     if (await probe(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${iso(ms)}/${set}/${z}/${y}/${x}.${ext}`)) {
       Object.assign(goes, { layer, set, latest: ms, iso }); GOES.maxZ = +set.match(/\d+$/)[0]; GOES.clear(); updateSources(); return;
@@ -1211,7 +1218,8 @@ function onTile(L) {
 }
 /* Footer + legend reflect what is actually on screen. */
 function updateSources() {
-  const tMinWas = tMin; tMin = radarLive() ? -50 : T_MIN; if (tMin !== tMinWas) { setTime(tDisp); drawChart(); }
+  const tMinWas = tMin; tMin = radarLive() ? -50 : T_MIN;
+  if (tMin !== tMinWas) { rebuildSeries(); setTime(tDisp); }
   const parts = [];
   parts.push(radarLive() ? "Radar NEXRAD/IEM" + (radarReadable() ? "" : " (view only)") : "Radar modeled");
   if (mode === "geo") parts.push(goesOk() ? "GOES-East/NASA GIBS" : "Clouds modeled");
@@ -1286,7 +1294,20 @@ function normalize(d) {
 function setConditions(d) {
   WX = normalize(d || {}); buildScenario(WX); drawHud(); strikes = []; rebuildSeries(); setTime(tDisp);
 }
-window.NardWeather = { set: setConditions, get: () => ({ ...WX }), mode: m => document.querySelector(`.mode[data-m="${m}"]`)?.click(), focus: (lat, lon) => setFocus(...km(lat, lon)) };
+window.NardWeather = {
+  set: setConditions,
+  get: () => ({ ...WX }),
+  mode: m => document.querySelector(`.mode[data-m="${m}"]`)?.click(),
+  focus: (lat, lon) => setFocus(...km(lat, lon)),
+  test: {
+    dbzToRate, rateToDbz, rateCat, dirName, radarFrame, normalize,
+    tileX, tileY, tileLon, tileLat, cubeDbz, km, ll, clamp,
+    thunderSec: (kmDist) => Math.round(kmDist * 1000 / 343),
+    snapshot: () => ({ ...SNAPSHOT }),
+    live: () => LIVE,
+    rateAtFocus,
+  },
+};
 addEventListener("message", e => { if (e.source === window.parent && e.data && e.data.type === "nard-weather") setConditions(e.data.data); });
 
 async function tryLive() {
