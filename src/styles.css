@@ -537,6 +537,18 @@ main,
   margin-top: 10px;
 }
 
+.radar-helper-link {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.radar-helper-link a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
 .acts {
   display: grid;
   gap: 10px;

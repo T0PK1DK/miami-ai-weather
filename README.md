@@ -24,7 +24,7 @@ There is no account, no PIN, and no deploy step in this repo.
 ## What it does
 
 - **Now** — large temperature, today's high/low, hourly strip with icons, Rothfusz heat index for the next few hours, a 6-hour rain clock, hurricane-season status, 15-minute nowcast line, and a deterministic AI briefing
-- **Radar** — RainViewer mosaic on a dark map, play/pause, pin on the selected place
+- **Radar** — RainViewer mosaic on a dark map, play/pause, pin on the selected place, plus a link to the full-screen NEXRAD helper
 - **Particle rain** — canvas drops scale with live precipitation and wind, and stay off when `prefers-reduced-motion` is set
 - **Filterable views** — neighborhood search plus nine desks (beach, heat, flood, tropics, play) in a sticky mobile toolbar
 - **Heat desk** — Rothfusz heat index now, plus the upcoming-hour peak (not a morning that already passed)

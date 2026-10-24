@@ -330,6 +330,7 @@ function radarView(snap: Snapshot, playing: boolean): string {
       </div>
       <p class="muted" id="radar-stamp">${snap.radar.frames.length ? "RainViewer mosaic over South Florida" : "Radar frames did not load. The rest of the briefing still stands."}</p>
       <div id="radar-map" role="img" aria-label="Animated radar map of South Florida"></div>
+      <p class="radar-helper-link"><a href="./radar-helper.html">Open the full-screen NEXRAD helper</a> — live IEM radar, GOES-East GeoColor, wind, and a nowcast insight. Same pin stays here.</p>
     </section>
   `;
 }
