@@ -22,7 +22,9 @@ Domain logic is pure and tested:
 - `src/lib/nowcast.ts` — 15-minute rain line and 10-day range-bar layout
 - `src/data/neighborhoods.ts` and `src/data/king-tides.ts`
 
-Docs: `README.md`, `docs/RESEARCH.md`. Tests: `tests/*.test.ts`. CI: `.github/workflows/ci.yml`.
+Standalone radar helper (Claude): `public/radar-helper.html` — one file, no libraries. Served at `/radar-helper.html`. Tests: `tests/radar-helper.test.js`.
+
+Docs: `README.md`, `docs/RESEARCH.md`. Tests: `tests/*.{test.ts,test.js}`. CI: `.github/workflows/ci.yml`.
 
 Constraints that still apply: **do not deploy**. **No personal names** in UI or docs. **No passcode / PIN gate**. Borrow ideas only — no copied assets.
 
@@ -40,7 +42,7 @@ npm run dev
 
 1. **Alerts geofence** — NWS zone/county filters for Miami-Dade / Broward / Monroe instead of a single point. Expiration countdown is already on the alert cards.
 2. **Tide chart** — sparkline from CO-OPS interval predictions, not just hi/lo, and flag when the next high crosses the NWS minor coastal flood threshold.
-3. **Radar layers** — satellite + rain + a simple legend; keep play/pause. RainViewer satellite paths are in the same `weather-maps.json`.
+3. **Radar layers** — Vite desk already has Esri satellite + RainViewer rain. A simple in-desk legend is still open. The full-screen helper at `public/radar-helper.html` already has NEXRAD decode, GOES-East, wind, and a dBZ legend. Do not replace that file with a build step.
 4. **Spanish copy** — NWS Miami publishes En Español. Add a language toggle with the same briefing rules, no LLM.
 5. ~~**Offline last snapshot**~~ — done. Last good `Snapshot` is stored per place; stale-time shows on reload and when feeds fail.
 6. ~~**More tests**~~ — done. `tests/weather-load.test.ts` fixtures `loadSnapshot` with mocked `fetch`.
@@ -55,6 +57,17 @@ npm run dev
 - Offline snapshots must never render a cached place against a different selected pin.
 
 After changes: `npm test && npm run build`, commit, and update this file if you add a feed or a view.
+
+## 2026-10-24 rebase onto radar-helper
+
+Claude's unmerged `claude/radar-helper` one-file page is kept as `public/radar-helper.html`. Overnight #3 changes (Miami look, rain/heat/season, phone polish) stay on the Vite app. Both READMEs survived. Nard PIN gating is still later / not in this repo.
+
+## 2026-10-22 overnight pass
+
+- **Look** — Biscayne-to-sunset shell, larger hero type, today's high/low.
+- **Awareness** — no new network feeds. Rain clock folds existing Open-Meteo 15-minute precip (hourly fallback). Heat desk uses upcoming Rothfusz hours. Tropics desk adds early/peak/late climatology on top of `CurrentStorms.json`.
+- Offline snapshots still revive without new `Snapshot` fields; rain/heat/season are derived at paint time.
+- **Bugs** — place search and the painted select now share `searchNeighborhoods` (coast tags). Nowcast looks 6 hours ahead. NWS fetches send a User-Agent. Flood's next-6h rain includes the current hour. Heat peak ignores hours that already passed.
 
 ## 2026-10-21 improvement pass
 

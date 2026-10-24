@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0a09">
+<meta name="color-scheme" content="dark">
+<title>Miami Weather</title>
+<meta name="description" content="South Florida radar helper: live NEXRAD, GOES-East GeoColor, wind, and a short nowcast insight. One file, no build.">
+<style>
+/* Tokens match NARD 2.0 (public/nard-2.0/css/nard.css) so this drops into Nard as-is.
+   Radar/cloud colours are data colours and live in the JS ramps, not here. */
+:root {
+  --bg: #0b0a09; --ink: #e9e1d6; --ink-2: #a59a8d; --ink-3: #6f675e;
+  --accent: #c49a6c; --accent-2: #8e7154; --cool: #9fb3c8;
+  --glass: rgba(22, 20, 18, 0.66); --line: rgba(233, 225, 214, 0.09);
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); overflow: hidden;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+body { position: fixed; inset: 0; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+.lbl { font: 9px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3); }
+
+#map { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; cursor: grab; }
+#map.drag { cursor: grabbing; }
+.vignette { position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0,0,0,.55) 100%),
+    linear-gradient(to bottom, rgba(11,10,9,.92) 0, rgba(11,10,9,.55) calc(150px + var(--st)), transparent calc(250px + var(--st))); }
+.scan { position: fixed; inset: 0; pointer-events: none; opacity: .5;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,.07) 2px 3px); }
+
+.hud { position: fixed; inset: 0; pointer-events: none; display: flex; flex-direction: column;
+  padding: calc(12px + var(--st)) 16px calc(12px + var(--sb)); max-width: 560px; margin: 0 auto; }
+.hud > * { pointer-events: auto; }
+
+/* ---- top: dial · place · compass ---- */
+.top { display: grid; grid-template-columns: 104px 1fr 64px; align-items: center; gap: 10px; }
+.dial { position: relative; width: 104px; height: 104px; }
+.dial svg, .compass svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.dial-c { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.dial-t { font-size: 34px; font-weight: 300; line-height: 1; letter-spacing: -.02em; padding-left: 6px; }
+.dial-f { margin-top: 5px; }
+.place { text-align: center; min-width: 0; }
+.place h1 { font-size: 17px; font-weight: 500; letter-spacing: .01em; }
+.place p { font-size: 12px; color: var(--ink-2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
+.live i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: breathe 2s infinite; }
+@keyframes breathe { 50% { opacity: .35; } }
+.compass { position: relative; width: 64px; height: 64px; justify-self: end; }
+.compass-l { text-align: center; margin-top: 4px; white-space: nowrap; }
+.wcol { display: grid; justify-items: end; }
+
+/* ---- mode chips ---- */
+.modes { display: flex; gap: 4px; margin: 12px auto 0; padding: 3px; border-radius: 999px; background: var(--glass);
+  border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.mode { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; min-height: 44px; border-radius: 999px; font-size: 12px; color: var(--ink-2);
+  transition: color .2s, background .2s; touch-action: manipulation; }
+.mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.mode[aria-pressed=true] { color: var(--bg); background: var(--ink); }
+
+/* ---- map-side floaters ---- */
+.spacer { flex: 1; min-height: 8px; pointer-events: none !important; }
+.floats { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 8px; pointer-events: none; }
+.legend { pointer-events: auto; display: grid; gap: 5px; padding: 8px 10px; border-radius: 12px; background: var(--glass);
+  border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); min-width: 0; }
+.ramp { width: 150px; height: 6px; border-radius: 3px; }
+.ramp-l { display: flex; justify-content: space-between; font: 8px/1 var(--mono); letter-spacing: .08em; color: var(--ink-3); text-transform: uppercase; }
+.legend .lbl { font-size: 8px; letter-spacing: .12em; }
+.fab { pointer-events: auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--glass);
+  border: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: var(--ink-2); }
+.fab svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+
+/* ---- bottom panel ---- */
+.panel { border-radius: 22px; background: var(--glass); border: 1px solid var(--line); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+  padding: 4px 14px 12px; display: grid; gap: 10px; }
+.grab { justify-self: center; width: 44px; height: 44px; display: grid; place-items: center; touch-action: manipulation; }
+.grab::before { content: ""; width: 34px; height: 4px; border-radius: 2px; background: var(--line); background: rgba(233,225,214,.18); }
+.ins-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ins-h .lbl { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); }
+.ins-h .lbl svg { width: 10px; height: 10px; }
+.ins-t { font-size: 15px; font-weight: 500; line-height: 1.3; margin-top: 6px; }
+.ins-b { font-size: 12.5px; color: var(--ink-2); margin-top: 3px; line-height: 1.45; }
+.tags { display: flex; gap: 6px; flex-wrap: nowrap; overflow: hidden; margin-top: 8px;
+  -webkit-mask-image: linear-gradient(to right, #000 90%, transparent); mask-image: linear-gradient(to right, #000 90%, transparent); }
+.tag[hidden] { display: none; }
+.tag { font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap;
+  background: rgba(233,225,214,.03); transition: border-color .3s, color .3s; }
+.tag.hot { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.tag.zap { color: #f1ead8; border-color: rgba(214,206,255,.45); }
+.tl { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: center; }
+.play { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--ink); touch-action: manipulation; }
+.play svg { width: 13px; height: 13px; fill: currentColor; }
+.tl-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.tl-h .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-time { font: 11px/1 var(--mono); color: var(--ink); white-space: nowrap; }
+.tl-time b { font-weight: 400; color: var(--accent); }
+#chart { display: block; width: 100%; height: 46px; touch-action: none; cursor: ew-resize; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); padding-top: 10px; }
+.stat { display: grid; gap: 4px; padding: 0 4px; }
+.stat + .stat { border-left: 1px solid var(--line); padding-left: 10px; }
+.stat b { font-size: 15px; font-weight: 400; white-space: nowrap; }
+.stat b small { font-size: 10px; color: var(--ink-2); margin-left: 1px; }
+.panel > * { min-width: 0; }
+.panel.compact .ins-b, .panel.compact .tags, .panel.compact .stats { display: none; }
+.foot { text-align: center; font-size: 8px; margin-top: 2px; }
+
+.toast { position: fixed; left: 50%; top: calc(178px + var(--st)); transform: translate(-50%, -6px); opacity: 0; pointer-events: none;
+  padding: 7px 13px; border-radius: 999px; font-size: 12px; background: rgba(20,19,24,.8); border: 1px solid rgba(214,206,255,.25);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); transition: opacity .35s var(--ease), transform .35s var(--ease); white-space: nowrap; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+@media (min-width: 900px) {
+  .hud { margin: 0 0 0 24px; }
+}
+@media (max-height: 700px) {
+  .stats { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live i { animation: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="map" aria-label="Radar map of South Florida centred on Miami. Drag to pan, pinch to zoom, tap to check a spot."></canvas>
+<div class="vignette"></div>
+<div class="scan"></div>
+
+<div class="hud">
+  <header class="top">
+    <div class="dial" aria-label="Temperature">
+      <svg viewBox="0 0 104 104" aria-hidden="true">
+        <defs><linearGradient id="dg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#8e7154"/><stop offset="1" stop-color="#e2bd8f"/></linearGradient></defs>
+        <circle cx="52" cy="52" r="44" fill="rgba(22,20,18,.55)" stroke="rgba(233,225,214,.08)" stroke-width="5" stroke-dasharray="207.3 276.5" transform="rotate(135 52 52)" stroke-linecap="round"/>
+        <circle id="dialArc" cx="52" cy="52" r="44" fill="none" stroke="url(#dg)" stroke-width="5" stroke-dasharray="0 276.5" transform="rotate(135 52 52)" stroke-linecap="round"/>
+        <g id="dialTicks"></g>
+        <circle id="dialFeels" r="3.2" fill="#e9e1d6" stroke="#0b0a09" stroke-width="1.5"/>
+      </svg>
+      <div class="dial-c"><div class="dial-t" id="temp">--°</div><div class="lbl dial-f" id="feels">feels --°</div></div>
+    </div>
+    <div class="place">
+      <h1 id="placeName">Miami</h1>
+      <p id="cond">—</p>
+      <div class="live lbl"><i></i><span id="clock">--:--</span></div>
+    </div>
+    <div class="wcol">
+      <div class="compass" aria-label="Wind direction">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="29" fill="rgba(22,20,18,.55)" stroke="rgba(233,225,214,.12)"/>
+          <g id="compTicks"></g>
+          <text x="32" y="12.5" text-anchor="middle" font-size="7" font-family="ui-monospace, monospace" fill="#a59a8d">N</text>
+          <g id="compArrow">
+            <line x1="32" y1="46" x2="32" y2="19" stroke="#c49a6c" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M32 15 l-5 7 h10 z" fill="#c49a6c"/>
+            <circle cx="32" cy="47" r="2.4" fill="none" stroke="#c49a6c" stroke-width="1.4"/>
+          </g>
+        </svg>
+      </div>
+      <div class="lbl compass-l" id="windLbl">-- mph</div>
+    </div>
+  </header>
+
+  <nav class="modes" role="group" aria-label="Map layer">
+    <button class="mode" data-m="radar" aria-pressed="true">
+      <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M8 8 L12.4 3.6"/><circle cx="8" cy="8" r="2.6"/></svg>Radar</button>
+    <button class="mode" data-m="geo" aria-pressed="false">
+      <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c2 2.2 2 10.2 0 12.4M8 1.8c-2 2.2-2 10.2 0 12.4"/></svg>GeoColor</button>
+    <button class="mode" data-m="wind" aria-pressed="false">
+      <svg viewBox="0 0 16 16"><path d="M1.5 5.5h8.5a2 2 0 1 0-2-2M1.5 8.5h11a2 2 0 1 1-2 2M1.5 11.5h5"/></svg>Wind</button>
+  </nav>
+
+  <div class="spacer"></div>
+
+  <div class="floats">
+    <div class="legend" id="legend">
+      <span class="lbl" id="legT">Precip · dBZ</span>
+      <canvas class="ramp" id="ramp" width="300" height="12"></canvas>
+      <div class="ramp-l" id="legL"><span>Light</span><span>Mod</span><span>Heavy</span><span>Extreme</span></div>
+    </div>
+    <button class="fab" id="recenter" aria-label="Back to Miami">
+      <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5"/><path d="M9 1v3M9 14v3M1 9h3M14 9h3"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/></svg>
+    </button>
+  </div>
+
+  <section class="panel" id="panel">
+    <button class="grab" id="grab" aria-label="Expand or collapse details"></button>
+    <div aria-live="polite">
+      <div class="ins-h">
+        <span class="lbl"><svg viewBox="0 0 10 10"><path d="M5 0 L6.2 3.8 L10 5 L6.2 6.2 L5 10 L3.8 6.2 L0 5 L3.8 3.8Z" fill="currentColor"/></svg>Nard · insight</span>
+        <span class="lbl" id="updated"></span>
+      </div>
+      <div class="ins-t" id="insT">Reading the sky…</div>
+      <div class="ins-b" id="insB"></div>
+      <div class="tags" id="tags"></div>
+    </div>
+    <div class="tl">
+      <button class="play" id="play" aria-label="Play radar loop"><svg viewBox="0 0 14 14" id="playIco"><path d="M3 1.5 L12 7 L3 12.5Z"/></svg></button>
+      <div>
+        <div class="tl-h"><span class="lbl" id="tlLbl">Rain here · next 2 h</span><span class="tl-time" id="tlTime">Now</span></div>
+        <canvas id="chart" aria-label="Rain rate at the selected spot from one hour ago to two hours ahead. Drag to scrub."></canvas>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="lbl">Storms</span><b id="sMove">--<small>mph</small></b></div>
+      <div class="stat"><span class="lbl">Humidity</span><b id="sHum">--<small>%</small></b></div>
+      <div class="stat"><span class="lbl">Wind</span><b id="sWind">--<small>mph</small></b></div>
+      <div class="stat"><span class="lbl" id="sRateL">Rate</span><b id="sRate">--<small>in/h</small></b></div>
+    </div>
+    <div class="lbl foot" id="foot"></div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+/* =====================================================================================
+   Miami Weather — one canvas, one weather model, three views.
+
+   Everything you see comes from a single deterministic field: storm cells (Gaussian cores
+   in linear Z), advected by a steering wind derived from the observed surface wind, with
+   growth/decay envelopes. The radar colours, GeoColor clouds, wind outflow, rain density,
+   lightning and the insight text are all read from that one field, so they always agree.
+
+   Conditions in: SNAPSHOT below, Open-Meteo (on by default; ?offline=1 skips the
+   network), or Nard via window.NardWeather.set({...}) / postMessage({type:"nard-weather", data}).
+   ===================================================================================== */
+
+const SNAPSHOT = {
+  location: "Miami, FL", place: "Downtown Miami", lat: 25.7743, lon: -80.1937,
+  temp_f: 82, feels_like_f: 84, humidity_pct: 83, wind_mph: 7, wind_dir_deg: 326,
+  precip_in_hr: 1.2, conditions: "Rain", outlook: "High rain chance continuing into the evening",
+};
+
+const TZ = "America/New_York";
+const T_MIN = -60, T_MAX = 120;         // loop window, minutes from now
+const LOOP_MIN_PER_S = 6;               // playback speed
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------------- geography (lat, lon) → km around downtown Miami ---------------- */
+const LAT0 = 25.7743, LON0 = -80.1937, RAD = Math.PI / 180;
+const KX = 111.32 * Math.cos(LAT0 * RAD), KY = 110.57;
+const km = (lat, lon) => [(lon - LON0) * KX, (lat - LAT0) * KY];
+const ll = (x, y) => [LAT0 + y / KY, LON0 + x / KX];
+const poly = a => a.map(p => km(p[0], p[1]));
+
+const MAINLAND = poly([[27.2,-82.3],[27.2,-80.12],[26.93,-80.07],[26.70,-80.03],[26.45,-80.06],[26.32,-80.07],[26.12,-80.10],
+  [25.98,-80.117],[25.93,-80.121],[25.905,-80.13],[25.88,-80.165],[25.85,-80.178],[25.80,-80.184],[25.775,-80.188],[25.755,-80.199],
+  [25.735,-80.215],[25.72,-80.234],[25.70,-80.252],[25.665,-80.272],[25.62,-80.302],[25.575,-80.318],[25.53,-80.327],[25.475,-80.335],
+  [25.43,-80.332],[25.39,-80.358],[25.33,-80.385],[25.28,-80.405],[25.235,-80.43],[25.205,-80.47],[25.185,-80.53],[25.17,-80.62],
+  [25.155,-80.75],[25.14,-80.92],[25.125,-81.04],[25.15,-81.11],[25.24,-81.13],[25.34,-81.17],[25.48,-81.22],[25.62,-81.29],
+  [25.80,-81.37],[25.90,-81.48],[26.05,-81.73],[26.25,-81.84],[26.6,-82.05],[27.2,-82.3]]);
+const ISLANDS = [
+  poly([[25.93,-80.117],[25.905,-80.119],[25.86,-80.12],[25.81,-80.123],[25.768,-80.13],[25.766,-80.139],[25.80,-80.142],[25.85,-80.134],[25.905,-80.128]]),
+  poly([[25.738,-80.158],[25.71,-80.152],[25.675,-80.155],[25.665,-80.163],[25.69,-80.172],[25.725,-80.17]]),
+  poly([[25.62,-80.165],[25.58,-80.17],[25.575,-80.178],[25.61,-80.174]]),
+  poly([[25.475,-80.186],[25.43,-80.20],[25.395,-80.218],[25.39,-80.228],[25.43,-80.212],[25.47,-80.195]]),
+  poly([[25.33,-80.255],[25.27,-80.30],[25.18,-80.36],[25.10,-80.43],[25.06,-80.48],[25.04,-80.505],[25.06,-80.505],[25.12,-80.44],[25.20,-80.37],[25.28,-80.31],[25.335,-80.262]]),
+];
+const URBAN = poly([[26.6,-80.24],[26.2,-80.28],[26.05,-80.43],[25.82,-80.44],[25.70,-80.46],[25.56,-80.49],[25.43,-80.52],[25.36,-80.51],[25.30,-80.43],[25.30,-79.9],[26.6,-79.9]]);
+const BAY = poly([[25.93,-80.13],[25.86,-80.165],[25.77,-80.17],[25.70,-80.21],[25.62,-80.27],[25.50,-80.30],[25.40,-80.32],[25.30,-80.37],
+  [25.25,-80.36],[25.33,-80.25],[25.45,-80.18],[25.60,-80.15],[25.74,-80.13],[25.90,-80.11]]);
+const FLBAY = poly([[25.20,-80.45],[25.16,-80.95],[24.95,-81.10],[24.80,-80.75],[25.02,-80.50],[25.10,-80.42]]);
+const ROADS = [ // [class, points]: 1 interstate/expressway, 2 major road
+  [1, poly([[26.45,-80.10],[26.12,-80.165],[25.95,-80.20],[25.85,-80.205],[25.79,-80.205],[25.765,-80.21]])],              // I-95
+  [1, poly([[26.45,-80.17],[26.1,-80.20],[25.95,-80.29],[25.85,-80.33],[25.72,-80.39],[25.60,-80.39],[25.47,-80.47],[25.44,-80.48]])], // Turnpike
+  [1, poly([[26.10,-80.30],[26.15,-80.45],[26.15,-81.40],[26.16,-81.75]])],                                              // I-75 / Alligator Alley
+  [1, poly([[25.928,-80.21],[25.93,-80.30],[25.90,-80.322],[25.80,-80.325],[25.70,-80.315],[25.688,-80.30]])],          // SR-826 Palmetto
+  [1, poly([[25.776,-80.195],[25.78,-80.25],[25.786,-80.30],[25.78,-80.38],[25.758,-80.44]])],                          // SR-836 Dolphin
+  [1, poly([[25.70,-80.315],[25.66,-80.35],[25.625,-80.385]])],                                                         // SR-874 Don Shula
+  [1, poly([[25.812,-80.205],[25.814,-80.14]])], [1, poly([[25.781,-80.205],[25.776,-80.14]])],                        // I-195, I-395
+  [1, poly([[26.098,-80.135],[26.10,-80.38]])], [1, poly([[26.10,-80.38],[26.20,-80.31],[26.32,-80.25]])],              // I-595, Sawgrass
+  [1, poly([[25.888,-80.21],[25.885,-80.33]])],                                                                         // SR-924 Gratigny
+  [2, poly([[25.765,-80.20],[25.762,-80.45],[25.757,-80.85],[25.86,-81.36]])],                                          // Tamiami Trail
+  [2, poly([[25.765,-80.21],[25.70,-80.30],[25.55,-80.39],[25.45,-80.48],[25.30,-80.40],[25.20,-80.38],[25.10,-80.44],[25.03,-80.51]])], // US-1 / Overseas
+  [2, poly([[25.80,-80.24],[25.87,-80.33],[26.0,-80.44],[26.3,-80.70],[26.6,-80.85]])],                                 // US-27
+  [2, poly([[25.76,-80.48],[25.47,-80.48]])], [2, poly([[25.43,-80.47],[25.29,-80.37]])],                              // Krome, Card Sound
+  [2, poly([[25.755,-80.205],[25.73,-80.16],[25.69,-80.16]])], [2, poly([[25.795,-80.19],[25.79,-80.14]])],             // Rickenbacker, Venetian
+  [2, poly([[25.905,-80.13],[25.765,-80.135]])],                                                                       // Collins Ave
+];
+const LAKES = [poly([[27.20,-80.85],[27.15,-80.70],[26.98,-80.62],[26.80,-80.65],[26.70,-80.78],[26.75,-80.95],[26.90,-81.05],[27.08,-80.98]])];
+const BAHAMAS = [
+  poly([[25.775,-79.265],[25.72,-79.30],[25.68,-79.295],[25.70,-79.27],[25.74,-79.255]]),                                   // Bimini
+  poly([[25.55,-79.27],[25.50,-79.285],[25.49,-79.275],[25.53,-79.26]]),                                                   // Cat Cay
+  poly([[26.72,-79.00],[26.66,-78.80],[26.62,-78.55],[26.55,-78.35],[26.51,-78.37],[26.53,-78.62],[26.58,-78.85],[26.66,-79.0]]), // Grand Bahama
+  poly([[25.1,-78.2],[24.6,-77.8],[24.3,-77.9],[24.2,-78.2],[24.7,-78.4],[25.2,-78.35]]),                                 // Andros
+];
+const AIRPORTS = [["MIA", 25.795, -80.287, 100], ["FLL", 26.072, -80.152, 125], ["OPF", 25.907, -80.278, 90], ["TMB", 25.648, -80.433, 90]]
+  .map(([n, la, lo, rot]) => { const [x, y] = km(la, lo); return { n, x, y, rot }; });
+const WATER_LABELS = [["ATLANTIC OCEAN", 25.62, -79.95], ["Biscayne Bay", 25.56, -80.245], ["Florida Bay", 25.03, -80.75],
+  ["Gulf of Mexico", 25.55, -81.55], ["Lake Okeechobee", 26.95, -80.83], ["Bimini", 25.73, -79.33]].map(([n, la, lo]) => { const [x, y] = km(la, lo); return { n, x, y }; });
+const PARKS = [["Everglades National Park", 25.40, -80.80], ["Water Conservation Area", 26.15, -80.60], ["Biscayne National Park", 25.40, -80.13]]
+  .map(([n, la, lo]) => { const [x, y] = km(la, lo); return { n, x, y }; });
+const PLACES = [
+  // name, lat, lon, tier (1 always shown, 2/3 as you zoom in)
+  ["Miami", 25.7743, -80.1937, 1], ["Miami Beach", 25.795, -80.130, 1], ["Fort Lauderdale", 26.122, -80.137, 1], ["Homestead", 25.468, -80.477, 1],
+  ["Hialeah", 25.857, -80.278, 2], ["Doral", 25.819, -80.355, 2], ["Coral Gables", 25.721, -80.268, 2], ["Kendall", 25.679, -80.317, 2],
+  ["Key Biscayne", 25.692, -80.163, 2], ["Aventura", 25.956, -80.139, 2], ["Hollywood", 26.011, -80.149, 2], ["Pembroke Pines", 26.003, -80.224, 3],
+  ["Key Largo", 25.086, -80.447, 2], ["Everglades", 25.757, -80.766, 2],
+  ["Miami Gardens", 25.942, -80.245, 3], ["Cutler Bay", 25.578, -80.337, 3], ["Florida City", 25.448, -80.479, 3], ["Miramar", 25.987, -80.232, 3],
+  ["Weston", 26.100, -80.400, 3], ["Westchester", 25.755, -80.327, 3], ["Little Havana", 25.773, -80.215, 3], ["Brickell", 25.760, -80.193, 3],
+].map(([n, la, lo, t]) => { const [x, y] = km(la, lo); return { n, x, y, t }; });
+const KAMX = km(25.611, -80.413);       // NWS Miami radar, Kendall
+
+/* ---------------- small math ---------------- */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hash(ix, iy) { let h = ix * 374761393 + iy * 668265263 | 0; h = (h ^ h >>> 13) * 1274126177 | 0; return ((h ^ h >>> 16) >>> 0) / 4294967296; }
+function vnoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+const fbm = (x, y) => vnoise(x / 6.5, y / 6.5) * .5 + vnoise(x / 2.6 + 17, y / 2.6 + 9) * .32 + vnoise(x / 1.1 + 41, y / 1.1 + 23) * .18;
+const DIRS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const dirName = d => DIRS[Math.round(((d % 360) + 360) % 360 / 45) % 8];
+
+/* Marshall–Palmer, Z = 200 R^1.6 (R in mm/h) */
+const dbzToRate = db => db < 15 ? 0 : Math.pow(Math.pow(10, db / 10) / 200, 1 / 1.6) / 25.4;
+const rateToDbz = r => r <= 0 ? 0 : 10 * Math.log10(200 * Math.pow(r * 25.4, 1.6));
+function rateCat(r) {
+  if (r < 0.01) return "none"; if (r < 0.1) return "light"; if (r < 0.3) return "moderate";
+  if (r < 1) return "heavy"; if (r < 2) return "very heavy"; return "intense";
+}
+
+/* ---------------- state ---------------- */
+let WX = { ...SNAPSHOT };
+let S = null;                            // scenario: { u, q, vm, stormMph, cells }
+const view = { x: -4, y: -4, s: 5.4 };
+let W = 0, H = 0, DPR = 1, AY = 0;
+let mode = "radar";
+let tMin = T_MIN;                         // -50 once live radar is up (its frames go back 50 min)
+let tDisp = T_MIN, playing = !reduceMotion, introStop = true, holdUntil = 0;
+const focus = { x: 0, y: 0, name: SNAPSHOT.place };
+let series = [];                         // rate at focus, every 3 min, T_MIN..T_MAX
+let strikes = [], flash = 0, flashT = 0;
+let rainLevel = 0;                       // smoothed rate driving the drop overlay
+let baseDirty = true;
+
+/* ---------------- scenario ---------------- */
+function buildScenario(wx) {
+  const toDeg = (wx.wind_dir_deg + 180) % 360;
+  const u = [Math.sin(toDeg * RAD), Math.cos(toDeg * RAD)], q = [-u[1], u[0]];
+  // Cells ride the steering flow, a bit faster than the 10 m wind.
+  const stormMph = Math.max(6, wx.wind_mph * 1.6), k = stormMph * 1.609 / 60;
+  const vm = [u[0] * k, u[1] * k];
+  const R = rng(1017);
+  const target = rateToDbz(wx.precip_in_hr);
+  const raining = target >= 15;
+  const cells = [];
+  const at = (a, c) => [u[0] * a + q[0] * c, u[1] * a + q[1] * c];
+
+  // Line A: the line over you now (leading convective line + trailing stratiform), bowed downstream.
+  const A = { p0: at(raining ? 1.5 : 26, 1.5), dv: [0, 0], b: -170, pk: -25, d: 85, cores: [], main: true };
+  for (const c of [-24, -17, -11, -6, -2, 2, 6, 11, 16, 22])
+    A.cores.push({ a: -0.010 * c * c, c, db: 47 - Math.abs(c) * 0.22 + R() * 5, sa: 2.5, sc: 4.2 });
+  for (const c of [-18, -7, 4, 15])
+    A.cores.push({ a: -8 - 0.010 * c * c, c, db: 27 + R() * 3, sa: 4.5, sc: 6 });
+  cells.push(A);
+
+  // Line B: the next band upstream, still building; this is "into the evening".
+  const B = { p0: at(-27, -3), dv: [0, 0], b: -60, pk: 105, d: 240, cores: [] };
+  for (let c = -26; c <= 26; c += 6.5)
+    B.cores.push({ a: -0.008 * c * c, c, db: 41 + R() * 6, sa: 2.4, sc: 3.8 });
+  for (const c of [-15, 0, 15]) B.cores.push({ a: -7 - 0.008 * c * c, c, db: 25 + R() * 3, sa: 4.5, sc: 6 });
+  cells.push(B);
+
+  // Scattered pop-up cells: sea-breeze storms over the Glades, showers over the Gulf Stream.
+  for (let i = 0; i < 18; i++) {
+    let x, y; do { x = -75 + R() * 140; y = -70 + R() * 145; } while (Math.hypot(x, y) < 14);
+    const life = 35 + R() * 55, b = -150 + R() * 280;
+    const cell = { p0: [x, y], dv: [(R() - .5) * .06, (R() - .5) * .06], b, pk: b + life * .4, d: b + life, cores: [] };
+    const n = R() < .4 ? 2 : 1, db = 30 + R() * (x < -20 ? 22 : 14);
+    for (let j = 0; j < n; j++) cell.cores.push({ a: (R() - .5) * 5, c: (R() - .5) * 5, db: db - j * 4, sa: 1.6 + R() * 1.8, sc: 1.6 + R() * 1.8 });
+    cells.push(cell);
+  }
+  for (const cell of cells) for (const co of cell.cores) co.amp = Math.pow(10, co.db / 10);
+  S = { u, q, vm, stormMph, cells, toDeg };
+
+  // Calibrate: the model must read the observed rate at the observation point right now.
+  if (raining) for (let it = 0; it < 8; it++) {
+    const cur = dbzAt(0, 0, 0, 0);
+    const g = Math.pow(10, (clamp(target, 15, 64) - cur) / 10);
+    if (Math.abs(cur - target) < 0.05) break;
+    for (const co of A.cores) co.amp *= g;
+  }
+}
+
+function env(t, c) {
+  if (t <= c.b || t >= c.d) return 0;
+  return t < c.pk ? .5 - .5 * Math.cos(Math.PI * (t - c.b) / (c.pk - c.b)) : .5 + .5 * Math.cos(Math.PI * (t - c.pk) / (c.d - c.pk));
+}
+/* All cores alive at time t, in world km. */
+function coresAt(t) {
+  const { u, q, vm } = S, out = [];
+  for (const cell of S.cells) {
+    const e = env(t, cell); if (e < 0.004) continue;
+    const px = cell.p0[0] + (vm[0] + cell.dv[0]) * t, py = cell.p0[1] + (vm[1] + cell.dv[1]) * t;
+    for (const co of cell.cores) {
+      const amp = co.amp * e;
+      out.push({ x: px + u[0] * co.a + q[0] * co.c, y: py + u[1] * co.a + q[1] * co.c, amp, db: 10 * Math.log10(amp),
+        ia: 1 / (2 * co.sa * co.sa), ic: 1 / (2 * co.sc * co.sc), lnA: Math.log(Math.max(amp, 2)),
+        r: Math.max(co.sa, co.sc) * Math.sqrt(2 * Math.log(Math.max(amp, 2))), main: !!cell.main });
+    }
+  }
+  return out;
+}
+function zAt(x, y, cores, spread = 1) {
+  const { u, q } = S; let z = 0;
+  for (const c of cores) {
+    const dx = x - c.x, dy = y - c.y;
+    if (Math.abs(dx) > c.r * spread || Math.abs(dy) > c.r * spread) continue;
+    const a = dx * u[0] + dy * u[1], b = dx * q[0] + dy * q[1], s2 = spread * spread;
+    z += c.amp * Math.exp(-(a * a * c.ia + b * b * c.ic) / s2);
+  }
+  return z;
+}
+/* Texture rides with the cells; `boil` adds a slow real-time churn so a paused map still breathes. */
+function texDb(x, y, t, boil) {
+  const nx = x - S.vm[0] * t + 0.5 * Math.sin(boil * .13), ny = y - S.vm[1] * t + 0.5 * Math.cos(boil * .11);
+  return (fbm(nx, ny) - .5) * 17;
+}
+function dbzAt(x, y, t, boil, cores) {
+  const z = zAt(x, y, cores || coresAt(t));
+  return z < 6 ? 0 : 10 * Math.log10(z) + texDb(x, y, t, boil);
+}
+function windAt(x, y, cores) {
+  // Surface wind plus downdraft outflow: air spreads out from under the heavy cores (gust fronts).
+  const base = WX.wind_mph, u = S.u;
+  let vx = u[0] * base, vy = u[1] * base;
+  for (const c of cores) {
+    if (c.db < 42) continue;
+    const dx = x - c.x, dy = y - c.y, r = Math.hypot(dx, dy) + 1e-3, s = 6;
+    const g = 10 * Math.min(1.3, (c.db - 42) / 10) * (r / s) * Math.exp(.5 - r * r / (2 * s * s));
+    vx += dx / r * g; vy += dy / r * g;
+  }
+  return [vx, vy];
+}
+
+/* ---------------- colour ramps ---------------- */
+const RADAR_STOPS = [ // dBZ, r, g, b, a
+  [15, 20, 90, 60, 0], [19, 22, 110, 66, .55], [24, 30, 150, 74, .7], [30, 52, 186, 86, .78], [35, 120, 205, 80, .82],
+  [38, 222, 206, 66, .86], [42, 240, 168, 58, .9], [46, 236, 112, 48, .92], [50, 222, 56, 52, .94], [55, 190, 34, 82, .95],
+  [60, 205, 70, 200, .96], [66, 236, 200, 255, .97]];
+const LUT = new Uint8ClampedArray(161 * 4);   // 0..80 dBZ in 0.5 steps
+for (let i = 0; i <= 160; i++) {
+  const d = i / 2; let k = 0;
+  while (k < RADAR_STOPS.length - 2 && d > RADAR_STOPS[k + 1][0]) k++;
+  const A = RADAR_STOPS[k], B = RADAR_STOPS[k + 1], f = clamp((d - A[0]) / (B[0] - A[0]), 0, 1);
+  const o = i * 4; LUT[o] = lerp(A[1], B[1], f); LUT[o + 1] = lerp(A[2], B[2], f); LUT[o + 2] = lerp(A[3], B[3], f);
+  LUT[o + 3] = d < 15 ? 0 : lerp(A[4], B[4], f) * 255 * .85;
+}
+const lutCss = (db, a = 1) => { const o = Math.round(clamp(db, 0, 80) * 2) * 4; return `rgba(${LUT[o]},${LUT[o + 1]},${LUT[o + 2]},${a})`; };
+function windColor(mph, a) {
+  const t = smooth(6, 26, mph);
+  return `rgba(${lerp(150, 226, t) | 0},${lerp(172, 178, t) | 0},${lerp(196, 128, t) | 0},${a})`;
+}
+
+/* ---------------- canvases ---------------- */
+const cv = document.getElementById("map"), ctx = cv.getContext("2d");
+const base = document.createElement("canvas"), bctx = base.getContext("2d");
+const ovl = document.createElement("canvas"), octx = ovl.getContext("2d");   // coast + roads drawn above the weather
+const trail = document.createElement("canvas"), tctx = trail.getContext("2d");
+const fieldC = document.createElement("canvas"), fctx = fieldC.getContext("2d");
+const shadowC = document.createElement("canvas"), sctx = shadowC.getContext("2d");
+const STEP = 3;
+let GW = 0, GH = 0, img = null, simg = null, zGrid = null, cGrid = null, gxW = null, gyW = null;
+let landPattern = null, urbanPattern = null;
+
+function resize() {
+  DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; AY = H * 0.43;
+  for (const c of [cv, base, ovl, trail]) { c.width = W * DPR | 0; c.height = H * DPR | 0; }
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  GW = Math.ceil(W / STEP); GH = Math.ceil(H / STEP);
+  fieldC.width = shadowC.width = GW; fieldC.height = shadowC.height = GH; img = fctx.createImageData(GW, GH); simg = sctx.createImageData(GW, GH);
+  zGrid = new Float32Array(GW * GH); cGrid = new Float32Array(GW * GH);
+  gxW = new Float32Array(GW); gyW = new Float32Array(GH);
+  if (!resize.done) { view.s = clamp(Math.max(W, H * .5) / 74, 4, 16); resize.done = true; }
+  baseDirty = true; tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, trail.width, trail.height);
+  drawChart();
+}
+const w2s = (x, y) => [W / 2 + (x - view.x) * view.s, AY - (y - view.y) * view.s];
+const s2w = (px, py) => [view.x + (px - W / 2) / view.s, view.y - (py - AY) / view.s];
+
+function makePatterns() {
+  const mk = (fn) => { const c = document.createElement("canvas"); c.width = c.height = 128; const g = c.getContext("2d"), d = g.createImageData(128, 128);
+    for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) { const [r, gg, b] = fn(x, y), o = (y * 128 + x) * 4; d.data[o] = r; d.data[o + 1] = gg; d.data[o + 2] = b; d.data[o + 3] = 255; }
+    g.putImageData(d, 0, 0); return c; };
+  // tileable-ish by sampling noise on a torus-free grid; the seam is invisible at this contrast
+  landPattern = mk((x, y) => { const n = vnoise(x / 9, y / 9) * .6 + vnoise(x / 3, y / 3) * .4, m = vnoise(x / 22 + 5, y / 22);
+    return [26 + n * 14 + m * 8, 36 + n * 16 + m * 4, 22 + n * 8]; });
+  urbanPattern = mk((x, y) => { const n = hash(x >> 1, y >> 1), s = vnoise(x / 6, y / 6);
+    return [52 + n * 26 + s * 12, 51 + n * 24 + s * 10, 48 + n * 20 + s * 8]; });
+}
+
+function pathOf(g, pts) { g.beginPath(); pts.forEach(([x, y], i) => { const [sx, sy] = w2s(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.closePath(); }
+function lineOf(g, pts) { g.beginPath(); pts.forEach(([x, y], i) => { const [sx, sy] = w2s(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); }
+// adds a closed ring to the current path (no beginPath), for multi-polygon clips
+function ringOf(g, pts) { pts.forEach(([x, y], i) => { const [sx, sy] = w2s(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.closePath(); }
+
+function drawBase() {
+  const g = bctx; g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const geo = mode === "geo", land = [MAINLAND, ...ISLANDS, ...BAHAMAS];
+  const clipLand = () => { g.beginPath(); for (const p of land) ringOf(g, p); g.clip(); };
+  // water: deep Atlantic east of the Gulf Stream edge, shallower bays inshore
+  const gr = g.createLinearGradient(...w2s(-20, 0), ...w2s(40, 0));
+  if (geo) { gr.addColorStop(0, "#0d2c44"); gr.addColorStop(1, "#061628"); } else { gr.addColorStop(0, "#0e171f"); gr.addColorStop(1, "#091017"); }
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.fillStyle = geo ? "rgba(46,120,128,.4)" : "rgba(70,110,130,.07)"; pathOf(g, BAY); g.fill(); pathOf(g, FLBAY); g.fill();
+  if (geo) {
+    g.save(); clipLand();
+    g.fillStyle = g.createPattern(landPattern, "repeat"); g.fillRect(0, 0, W, H);
+    g.fillStyle = g.createPattern(urbanPattern, "repeat"); g.globalAlpha = .85; pathOf(g, URBAN); g.fill(); g.globalAlpha = 1;
+    g.restore();
+  } else {
+    g.fillStyle = "#211f1a"; for (const p of land) { pathOf(g, p); g.fill(); }
+    g.save(); clipLand(); g.fillStyle = "#2a2722"; pathOf(g, URBAN); g.fill(); g.restore();
+  }
+  // lakes
+  g.fillStyle = geo ? "#123448" : "#0e171f"; for (const p of LAKES) { pathOf(g, p); g.fill(); }
+  // Miami-Dade / Broward section-line grid: streets every mile, arterials every 2 miles
+  if (view.s > 2.5) {
+    g.save(); clipLand(); pathOf(g, URBAN); g.clip();
+    const mi = 1.609, [x0, y1] = s2w(0, 0), [x1, y0] = s2w(W, H);
+    for (const [stepMi, a, wdt] of [[1, geo ? .07 : .075, .6], [2, geo ? .1 : .11, .9]]) {
+      if (stepMi === 1 && view.s < 4.5) continue;
+      g.strokeStyle = `rgba(233,225,214,${a})`; g.lineWidth = wdt; g.beginPath();
+      const st = stepMi * mi;
+      for (let x = Math.floor(x0 / st) * st; x < x1; x += st) { const [sx] = w2s(x, 0); g.moveTo(sx, 0); g.lineTo(sx, H); }
+      for (let y = Math.floor(y0 / st) * st; y < y1; y += st) { const [, sy] = w2s(0, y); g.moveTo(0, sy); g.lineTo(W, sy); }
+      g.stroke();
+    }
+    g.restore();
+  }
+  // graticule (HUD)
+  if (!geo) {
+    g.strokeStyle = "rgba(233,225,214,.03)"; g.fillStyle = "rgba(233,225,214,.2)"; g.font = "8px ui-monospace, monospace";
+    const [la1, lo1] = ll(...s2w(0, H)), [la2, lo2] = ll(...s2w(W, 0));
+    for (let la = Math.ceil(la1 * 4) / 4; la < la2; la += .25) { const [, sy] = w2s(0, km(la, LON0)[1]); g.beginPath(); g.moveTo(0, sy); g.lineTo(W, sy); g.stroke(); g.fillText(la.toFixed(2) + "°N", 4, sy - 3); }
+    for (let lo = Math.ceil(lo1 * 4) / 4; lo < lo2; lo += .25) { const [sx] = w2s(km(LAT0, lo)[0], 0); g.beginPath(); g.moveTo(sx, 0); g.lineTo(sx, H); g.stroke(); }
+  }
+  if (SAT.state !== "fail") {
+    drawTiles(g, SAT, { dpr: DPR });
+    if (mode !== "geo") {   // MyRadar-style night satellite: desaturate and darken so the radar reads on top
+      g.globalCompositeOperation = "saturation"; g.fillStyle = "rgba(128,128,128,.55)"; g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = "source-over"; g.fillStyle = mode === "wind" ? "rgba(6,8,11,.6)" : "rgba(6,8,11,.46)"; g.fillRect(0, 0, W, H);
+    }
+  }
+  drawOverlay();
+  baseDirty = false;
+}
+function drawOverlay() {
+  const g = octx, geo = mode === "geo"; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, W, H);
+  g.lineJoin = g.lineCap = "round";
+  if (SAT.state === "ok") {   // real imagery: real roads; skip the hand-traced coast and highways, they'd sit slightly off
+    if (ROADREF.state !== "fail") drawTiles(g, ROADREF, { dpr: DPR, alpha: geo ? .5 : .7 });
+    drawMapNames(g, geo); return;
+  }
+  // coastline: a soft halo then a crisp line, so it reads over heavy rain too
+  for (const [w, a] of [[3, .1], [1, geo ? .4 : .5]]) {
+    g.lineWidth = w; g.strokeStyle = `rgba(233,225,214,${a})`;
+    for (const p of [MAINLAND, ...ISLANDS, ...BAHAMAS, ...LAKES]) { pathOf(g, p); g.stroke(); }
+  }
+  // highways: dark casing + light core, like a road map
+  for (const [cls, pts] of ROADS) {
+    if (cls === 2 && view.s < 3) continue;
+    const core = cls === 1 ? 1.6 : 1, z = clamp(view.s / 6, .7, 1.8);
+    g.lineWidth = (core + 1.6) * z; g.strokeStyle = "rgba(8,8,8,.45)"; lineOf(g, pts); g.stroke();
+    g.lineWidth = core * z; g.strokeStyle = cls === 1 ? (geo ? "rgba(245,226,190,.55)" : "rgba(214,186,140,.5)") : "rgba(233,225,214,.3)"; lineOf(g, pts); g.stroke();
+  }
+  // airports: runway glyph + code
+  if (view.s > 3.5) for (const a of AIRPORTS) {
+    const [sx, sy] = w2s(a.x, a.y); g.save(); g.translate(sx, sy); g.rotate((a.rot - 90) * RAD);
+    g.strokeStyle = "rgba(233,225,214,.65)"; g.lineWidth = 1.6; g.beginPath(); g.moveTo(-6, -2); g.lineTo(6, -2); g.moveTo(-5, 2.5); g.lineTo(5, 2.5); g.stroke();
+    g.restore(); g.font = "8px ui-monospace, monospace"; g.fillStyle = "rgba(233,225,214,.6)"; g.fillText(a.n, sx + 9, sy + 3);
+  }
+  drawMapNames(g, geo);
+}
+function drawMapNames(g, geo) {
+  g.textAlign = "center";
+  for (const w of WATER_LABELS) { const [sx, sy] = w2s(w.x, w.y);
+    g.font = `italic ${w.n === w.n.toUpperCase() ? 10 : 9}px ui-serif, Georgia, serif`; g.fillStyle = geo ? "rgba(190,220,235,.55)" : "rgba(140,175,200,.5)";
+    if (g.letterSpacing !== undefined) g.letterSpacing = w.n === w.n.toUpperCase() ? "3px" : "1px"; g.fillText(w.n, sx, sy); }
+  if (g.letterSpacing !== undefined) g.letterSpacing = "0px";
+  if (view.s > 3) for (const p of PARKS) { const [sx, sy] = w2s(p.x, p.y);
+    g.font = "8px ui-monospace, monospace"; g.fillStyle = geo ? "rgba(200,225,190,.5)" : "rgba(150,170,130,.45)"; g.fillText(p.n.toUpperCase(), sx, sy); }
+  g.textAlign = "start";
+}
+
+/* ---------------- field raster ---------------- */
+function computeField(t, boil, cores) {
+  for (let i = 0; i < GW; i++) gxW[i] = view.x + (i * STEP + STEP / 2 - W / 2) / view.s;
+  for (let j = 0; j < GH; j++) gyW[j] = view.y - (j * STEP + STEP / 2 - AY) / view.s;
+  const geo = mode === "geo", { u, q } = S;
+  zGrid.fill(0); if (geo) cGrid.fill(0);
+  // core-major accumulation: each core only touches its own bounding box
+  const pass = (grid, spread, ampK, shift) => {
+    for (const c of cores) {
+      const cx = c.x + u[0] * shift * (c.db > 36 ? 1 : .3), cy = c.y + u[1] * shift * (c.db > 36 ? 1 : .3), R = c.r * spread;
+      const i0 = clamp(Math.floor((cx - R - view.x) * view.s / STEP + W / 2 / STEP), 0, GW), i1 = clamp(Math.ceil((cx + R - view.x) * view.s / STEP + W / 2 / STEP), 0, GW);
+      const j0 = clamp(Math.floor((AY - (cy + R - view.y) * view.s) / STEP), 0, GH), j1 = clamp(Math.ceil((AY - (cy - R - view.y) * view.s) / STEP), 0, GH);
+      if (i0 >= i1 || j0 >= j1) continue;
+      const s2 = spread * spread, amp = c.amp * ampK, cut = c.lnA;
+      for (let j = j0; j < j1; j++) {
+        const dy = gyW[j] - cy, row = j * GW;
+        for (let i = i0; i < i1; i++) {
+          const dx = gxW[i] - cx, a = dx * u[0] + dy * u[1], b = dx * q[0] + dy * q[1];
+          const e = (a * a * c.ia + b * b * c.ic) / s2;
+          if (e < cut) grid[row + i] += amp * Math.exp(-e);
+        }
+      }
+    }
+  };
+  pass(zGrid, 1, 1, 0);
+  const d = img.data;
+  if (!geo) {
+    const alphaK = mode === "wind" ? .32 : 1;
+    for (let j = 0, k = 0; j < GH; j++) for (let i = 0; i < GW; i++, k++) {
+      const z = zGrid[k], o = k * 4;
+      if (z < 10) { d[o + 3] = 0; continue; }
+      const db = 10 * Math.log10(z) + texDb(gxW[i], gyW[j], t, boil);
+      if (db < 15) { d[o + 3] = 0; continue; }
+      const l = Math.round(Math.min(db, 80) * 2) * 4;
+      d[o] = LUT[l]; d[o + 1] = LUT[l + 1]; d[o + 2] = LUT[l + 2]; d[o + 3] = LUT[l + 3] * alphaK;
+    }
+  } else {
+    // GeoColor: anvils spread wider and drift downwind of the cores; lit from the low western sun.
+    pass(cGrid, 1.8, .6, 4);
+    for (let j = 0, k = 0; j < GH; j++) for (let i = 0; i < GW; i++, k++) {
+      const z = cGrid[k] + zGrid[k] * .4, x = gxW[i], y = gyW[j];
+      const cir = (vnoise(x / 9 + boil * .004, y / 4 + 3) - .45) * 1.6;           // thin cirrus streaks
+      const nx = x - S.vm[0] * t, ny = y - S.vm[1] * t, tex = vnoise(nx / 5 + boil * .003, ny / 5) * .65 + vnoise(nx / 2.2 + 7, ny / 2.2) * .35;
+      const db = z > 1 ? 10 * Math.log10(z) + (tex - .5) * 18 : -10;
+      cGrid[k] = clamp(smooth(20, 44, db) + Math.max(0, cir) * .12, 0, 1);
+    }
+    for (let j = 0, k = 0; j < GH; j++) for (let i = 0; i < GW; i++, k++) {
+      const c = cGrid[k], o = k * 4;
+      if (c < .02) { d[o + 3] = 0; continue; }
+      const e = cGrid[k + (i < GW - 1 ? 1 : 0)] - cGrid[k - (i > 0 ? 1 : 0)];
+      const top = zGrid[k] > 2e4 ? .08 : 0;                                        // overshooting tops a touch brighter
+      const lit = clamp(.74 + e * 1.3 + c * .2 + top, .5, 1.06);
+      d[o] = clamp(222 * lit, 0, 255); d[o + 1] = clamp(226 * lit, 0, 255); d[o + 2] = clamp(232 * lit + (1 - c) * 18, 0, 255);
+      d[o + 3] = Math.pow(c, .8) * 245;
+    }
+    const sd = simg.data; for (let o = 3; o < sd.length; o += 4) sd[o] = d[o] * .45;
+    sctx.putImageData(simg, 0, 0);
+  }
+  fctx.putImageData(img, 0, 0);
+}
+
+/* ---------------- wind particles ---------------- */
+const PN = 650, px = new Float32Array(PN), py = new Float32Array(PN), pl = new Float32Array(PN);
+function seedParticle(i) { px[i] = Math.random() * W; py[i] = Math.random() * H; pl[i] = 1 + Math.random() * 3; }
+for (let i = 0; i < PN; i++) seedParticle(i);
+function drawWind(dt, cores) {
+  const g = tctx; g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.globalCompositeOperation = "destination-out"; g.fillStyle = `rgba(0,0,0,${clamp(dt * 5, .05, .4)})`; g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = "source-over"; g.lineWidth = 1.3; g.lineCap = "round";
+  const k = .2 * dt * 60;                 // px per frame per mph (screen space, zoom independent)
+  for (let i = 0; i < PN; i++) {
+    const [wx, wy] = s2w(px[i], py[i]), [vx, vy] = windAt(wx, wy, cores), sp = Math.hypot(vx, vy);
+    const nx = px[i] + vx * k, ny = py[i] - vy * k;
+    g.strokeStyle = windColor(sp, .7); g.beginPath(); g.moveTo(px[i], py[i]); g.lineTo(nx, ny); g.stroke();
+    g.fillStyle = windColor(sp, .95); g.fillRect(nx - .8, ny - .8, 1.6, 1.6);
+    px[i] = nx; py[i] = ny; pl[i] -= dt;
+    if (pl[i] < 0 || nx < -10 || nx > W + 10 || ny < -10 || ny > H + 10) seedParticle(i);
+  }
+}
+
+/* ---------------- rain overlay ---------------- */
+const DN = 340, drops = Array.from({ length: DN }, () => newDrop(true)), splashes = [];
+function newDrop(any) { const z = .25 + Math.random() * .75; return { x: Math.random() * (W + 200) - 100, y: any ? Math.random() * H : -20 - Math.random() * 80, z, end: H * (.35 + Math.random() * .65), j: .8 + Math.random() * .4 }; }
+function drawRain(dt, rate, rt) {
+  const want = Math.min(DN, Math.round(Math.sqrt(rate) * 240) * (mode === "radar" ? 1 : mode === "geo" ? .65 : 0) * (reduceMotion ? .35 : 1));
+  if (want < 1) return;
+  // Drop velocity on screen: gravity (down) + horizontal wind drift scaled by wind / terminal fall speed (~9 m/s).
+  const ms = WX.wind_mph * .447 * (1 + .18 * Math.sin(rt * .7) + .1 * Math.sin(rt * 1.9));
+  const sx = S.u[0], sy = -S.u[1], drift = ms / 9 * 1.6;
+  const vx = sx * drift, vy = 1 + Math.max(-.6, sy * drift);
+  ctx.lineCap = "round";
+  for (let i = 0; i < want; i++) {
+    const d = drops[i], v = (560 + 900 * d.z) * d.j;
+    const len = 9 + 16 * d.z;
+    d.x += vx * v * dt; d.y += vy * v * dt;
+    ctx.strokeStyle = `rgba(196,212,228,${(.06 + .2 * d.z) * clamp(rate * 1.5 + .3, .3, 1)})`; ctx.lineWidth = .5 + .9 * d.z;
+    ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - vx * len, d.y - vy * len); ctx.stroke();
+    if (d.y > d.end) { if (d.z > .78 && splashes.length < 40) splashes.push({ x: d.x, y: d.y, t: 0 }); Object.assign(d, newDrop(false)); }
+    else if (d.x > W + 120 || d.x < -120) Object.assign(d, newDrop(false));
+  }
+  for (let i = splashes.length - 1; i >= 0; i--) {
+    const s = splashes[i]; s.t += dt; if (s.t > .3) { splashes.splice(i, 1); continue; }
+    const f = s.t / .3; ctx.strokeStyle = `rgba(200,215,230,${.22 * (1 - f)})`; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.ellipse(s.x, s.y, 2 + f * 7, (2 + f * 7) * .35, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+/* ---------------- lightning ---------------- */
+function updateLightning(dt, cores, rt) {
+  const thunder = /thunder|storm/i.test(WX.conditions) ? 2 : 1;
+  for (const c of cores) {
+    if (c.db < 42) continue;
+    const lam = .05 * Math.pow((c.db - 42) / 8, 1.5) * thunder * (c.lk ?? 1);
+    if (Math.random() < lam * dt) {
+      const r = Math.sqrt(-2 * Math.log(Math.random() + 1e-9)) * 1.4, a = Math.random() * 6.283;
+      const x = c.x + Math.cos(a) * r, y = c.y + Math.sin(a) * r, dist = Math.hypot(x - focus.x, y - focus.y);
+      strikes.push({ x, y, rt, dist, seed: Math.random() * 1e9 | 0 });
+      if (dist < 16 && !reduceMotion) { flash = Math.max(flash, (1 - dist / 16) * .9); flashT = rt; }
+      if (dist < 16) toastStrike(dist);
+    }
+  }
+  strikes = strikes.filter(s => rt - s.rt < 300);
+}
+function drawStrikes(rt) {
+  const geo = mode === "geo";
+  for (const s of strikes) {
+    const age = rt - s.rt, [sx, sy] = w2s(s.x, s.y);
+    if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
+    if (geo && age < .5) {   // cloud illumination from inside the anvil
+      const a = (1 - age / .5) * .55, g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 60);
+      g.addColorStop(0, `rgba(235,232,255,${a})`); g.addColorStop(1, "rgba(235,232,255,0)"); ctx.fillStyle = g; ctx.fillRect(sx - 60, sy - 60, 120, 120);
+    }
+    if (age < .22) {         // the bolt: a short branching crack
+      const R = rng(s.seed); ctx.strokeStyle = `rgba(246,242,255,${1 - age / .22})`; ctx.lineWidth = 1.4;
+      ctx.shadowColor = "rgba(200,190,255,.9)"; ctx.shadowBlur = 10;
+      for (let b = 0; b < 3; b++) { let x = sx, y = sy, ang = R() * 6.283; ctx.beginPath(); ctx.moveTo(x, y);
+        for (let k = 0; k < 4; k++) { ang += (R() - .5) * 1.4; x += Math.cos(ang) * (5 + R() * 6); y += Math.sin(ang) * (5 + R() * 6); ctx.lineTo(x, y); } ctx.stroke(); }
+      ctx.shadowBlur = 0;
+    }
+    if (age < 1.6) { const f = age / 1.6; ctx.strokeStyle = `rgba(214,206,255,${.6 * (1 - f)})`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(sx, sy, 4 + f * 26, 0, 6.283); ctx.stroke(); }
+    const a = .75 * (1 - age / 300);       // a small mark for five minutes
+    ctx.strokeStyle = `rgba(240,234,214,${a})`; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(sx - 3, sy); ctx.lineTo(sx + 3, sy); ctx.moveTo(sx, sy - 3); ctx.lineTo(sx, sy + 3); ctx.stroke();
+  }
+}
+let toastTimer = 0;
+function toastStrike(dist) {
+  const mi = dist * .621, secs = Math.round(dist * 1000 / 343);
+  const el = document.getElementById("toast");
+  el.textContent = `⚡ ${mi < 1 ? "<1" : mi.toFixed(1)} mi away · thunder in ~${secs}s`;
+  el.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 3800);
+  if (navigator.vibrate && dist < 5 && navigator.userActivation?.hasBeenActive) try { navigator.vibrate(18); } catch {}
+  updateLightningTag();
+}
+
+/* ---------------- overlays: KAMX sweep, track, labels, pin ---------------- */
+function drawSweep(rt) {
+  const [sx, sy] = w2s(...KAMX), R = 60 * view.s;
+  ctx.strokeStyle = "rgba(233,225,214,.05)"; ctx.setLineDash([2, 5]); ctx.lineWidth = 1;
+  for (const r of [25, 50]) { ctx.beginPath(); ctx.arc(sx, sy, r * view.s, 0, 6.283); ctx.stroke(); }
+  ctx.setLineDash([]);
+  if (ctx.createConicGradient && !reduceMotion) {
+    const a = (rt * .9) % 6.283, g = ctx.createConicGradient(a - .55, sx, sy);
+    g.addColorStop(0, "rgba(196,154,108,0)"); g.addColorStop(.0875, "rgba(196,154,108,.07)"); g.addColorStop(.0876, "rgba(196,154,108,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, R, 0, 6.283); ctx.fill();
+  }
+  ctx.fillStyle = "rgba(196,154,108,.7)"; ctx.fillRect(sx - 2, sy - 2, 4, 4);
+  label("KAMX", sx + 6, sy + 3, "rgba(196,154,108,.55)", 8);
+}
+function drawTrack(cores) {
+  // Storm track for the strongest nearby core: where it'll be in 15/30/45 min.
+  let best = null, bs = -1e9;
+  for (const c of cores) { if (c.db < 40) continue; const [sx, sy] = w2s(c.x, c.y); if (sx < 0 || sx > W || sy < 0 || sy > H) continue;
+    const sc = c.db - Math.hypot(c.x - focus.x, c.y - focus.y) * .35; if (sc > bs) { bs = sc; best = c; } }
+  if (!best) return;
+  const [x0, y0] = w2s(best.x, best.y), [x1, y1] = w2s(best.x + S.vm[0] * 45, best.y + S.vm[1] * 45);
+  ctx.strokeStyle = "rgba(233,225,214,.55)"; ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.setLineDash([]);
+  const ang = Math.atan2(y1 - y0, x1 - x0);
+  ctx.fillStyle = "rgba(233,225,214,.7)"; ctx.beginPath(); ctx.moveTo(x1 + Math.cos(ang) * 6, y1 + Math.sin(ang) * 6);
+  ctx.lineTo(x1 + Math.cos(ang + 2.5) * 6, y1 + Math.sin(ang + 2.5) * 6); ctx.lineTo(x1 + Math.cos(ang - 2.5) * 6, y1 + Math.sin(ang - 2.5) * 6); ctx.fill();
+  for (const m of [15, 30]) {
+    const [tx, ty] = w2s(best.x + S.vm[0] * m, best.y + S.vm[1] * m);
+    ctx.fillStyle = "rgba(233,225,214,.85)"; ctx.beginPath(); ctx.arc(tx, ty, 2, 0, 6.283); ctx.fill();
+    label(clock(tDisp + m), tx + 6, ty - 5, "rgba(233,225,214,.6)", 8);
+  }
+  ctx.strokeStyle = "rgba(233,225,214,.6)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x0, y0, 7, 0, 6.283); ctx.stroke();
+}
+function label(text, x, y, color, size = 10, weight = "") {
+  ctx.font = `${weight} ${size}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.fillStyle = "rgba(0,0,0,.65)"; ctx.fillText(text, x + 1, y + 1); ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
+function drawLabels() {
+  const tier = view.s > 10 ? 3 : view.s > 4.2 ? 2 : 1;
+  ctx.textBaseline = "middle";
+  for (const p of PLACES) {
+    if (p.t > tier) continue;
+    const [sx, sy] = w2s(p.x, p.y); if (sx < -60 || sx > W + 10 || sy < 0 || sy > H) continue;
+    if (Math.hypot(p.x - focus.x, p.y - focus.y) * view.s < 18) continue;
+    const big = p.t === 1;
+    ctx.fillStyle = "rgba(233,225,214,.5)"; ctx.beginPath(); ctx.arc(sx, sy, big ? 1.8 : 1.3, 0, 6.283); ctx.fill();
+    label(big ? p.n.toUpperCase() : p.n, sx + 6, sy, big ? "rgba(233,225,214,.82)" : "rgba(233,225,214,.55)", big ? 10 : 9);
+  }
+  ctx.textBaseline = "alphabetic";
+}
+function drawPin(rt) {
+  const [sx, sy] = w2s(focus.x, focus.y), p = reduceMotion ? .5 : (rt * .6) % 1;
+  ctx.strokeStyle = `rgba(196,154,108,${.55 * (1 - p)})`; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(sx, sy, 7 + p * 18, 0, 6.283); ctx.stroke();
+  ctx.fillStyle = "#c49a6c"; ctx.beginPath(); ctx.arc(sx, sy, 5, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = "#f4ece0"; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.textBaseline = "middle"; label(focus.name.toUpperCase(), sx + 11, sy, "#f1e7d8", 10, "600"); ctx.textBaseline = "alphabetic";
+}
+
+/* ---------------- time ---------------- */
+function nowMs() { return Date.now(); }
+function clock(min) {
+  return new Date(nowMs() + min * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ });
+}
+const clock5 = min => {
+  const t = nowMs() / 60000;
+  return clock(Math.round((min + t % 5) / 5) * 5 - t % 5);
+};
+
+/* ---------------- series + insight ---------------- */
+function rateAtFocus(t, boil = 0) {
+  if (radarReadable()) { const d = realDbzAt(focus.x, focus.y, t); return d == null ? NaN : dbzToRate(d); }   // NaN: tile still loading
+  if (radarLive()) return Math.abs(t) < 1.5 && Math.hypot(focus.x, focus.y) < .5 ? WX.precip_in_hr : NaN;    // radar shown but unreadable
+  const isObs = Math.hypot(focus.x, focus.y) < .5 && Math.abs(t) < 1.5;
+  return isObs ? WX.precip_in_hr : dbzToRate(dbzAt(focus.x, focus.y, t, boil));
+}
+function rebuildSeries() {
+  series = []; for (let t = tMin; t <= T_MAX; t += 3) series.push({ t, r: rateAtFocus(t) });
+  drawChart(); writeInsight();
+}
+function writeInsight() {
+  const fut = []; for (let t = 0; t <= 150; t += 2) fut.push({ t, r: rateAtFocus(t) });
+  if (fut.some(p => isNaN(p.r))) {
+    const n = fut[0].r;
+    document.getElementById("insT").textContent = radarLive() && !radarReadable() && !isNaN(n) ? `${rateCat(n)[0].toUpperCase() + rateCat(n).slice(1)} rain reported · ${n.toFixed(1)} in/hr` : "Reading live radar…";
+    document.getElementById("insB").textContent = radarLive() && !radarReadable() ? "Live radar is on the map, but this browser won't let the page read its pixels, so there's no timing estimate." : "";
+    document.getElementById("tags").replaceChildren(); return;
+  }
+  const now = fut[0].r, cat = rateCat(now), place = focus.name;
+  const fromDir = dirName(WX.wind_dir_deg), toDir = dirName(S.toDeg);
+  const idx = (from, pred) => { for (let i = from; i < fut.length; i++) if (pred(fut[i], i)) return i; return -1; };
+  const dryRun = i => fut.slice(i, i + 5).every(p => p.r < .02);
+  let title, body, tags = [], quietWind = false;   // quietWind: the dry-now advice already covers umbrellas
+  const fmtR = r => r >= .095 ? r.toFixed(1) : r.toFixed(2);
+  if (now >= .02) {
+    const heavy = now >= .3;
+    const iEase = heavy ? idx(1, p => p.r < .1) : -1;
+    const iEnd = idx(1, (p, i) => dryRun(i));
+    const from = iEnd > 0 ? iEnd : iEase;
+    const iNext = from > 0 ? idx(from, p => p.r >= (heavy ? .3 : .05)) : -1;
+    const Cat = cat[0].toUpperCase() + cat.slice(1);
+    title = `${Cat} rain` + (iEase > 0 ? ` · eases by ${clock5(fut[iEase].t)}` : iEnd > 0 ? ` · clears by ${clock5(fut[iEnd].t)}` : " · settling in");
+    body = `The core is sliding ${toDir}` + (iEnd > 0 ? ` and it dries out near ${clock5(fut[iEnd].t)}` : iEase > 0 ? `; lighter rain lingers behind it` : "");
+    body += iNext > 0 ? `, then a ${heavy ? "heavier " : ""}band from the ${fromDir} arrives around ${clock5(fut[iNext].t)}.` : ".";
+    tags.push(["☂ Umbrella", "hot"]);
+    if (iNext > 0) tags.push([`Next band ${clock5(fut[iNext].t)}`]);
+    else if (iEnd > 0) tags.push([`Dry ${clock5(fut[iEnd].t)}`]);
+    if (now >= .5) tags.push(["Ponding on roads"]);
+  } else {
+    const iOn = idx(1, p => p.r >= .05);
+    if (iOn > 0) {
+      const peak = Math.max(...fut.slice(iOn).map(p => p.r));
+      title = `Dry now · rain by ${clock5(fut[iOn].t)}`;
+      body = `${rateCat(peak)[0].toUpperCase() + rateCat(peak).slice(1)} rain moves in from the ${fromDir}. Head out before ${clock5(fut[iOn].t)} or take an umbrella.`;
+      quietWind = true;
+      tags.push([`Rain ${clock5(fut[iOn].t)}`, "hot"], ["☂ Bring one"]);
+    } else { title = "Dry for the next couple of hours"; body = `Nothing heading for ${place} on the current motion.`; tags.push(["No umbrella"]); }
+  }
+  const w = WX.wind_mph;
+  if (!(quietWind && w < 15)) body += w < 15 ? ` Light ${fromDir} wind, so an umbrella holds up.` :
+          w < 25 ? ` Gusty ${fromDir} wind — a sturdy umbrella helps.` : ` Too windy for an umbrella; wear a rain jacket.`;
+  if (now >= .02 && /evening/i.test(WX.outlook || "") && !/arrives/.test(body)) body += " Rain chances stay high into the evening.";
+  document.getElementById("insT").textContent = title;
+  document.getElementById("insB").textContent = body;
+  const tg = document.getElementById("tags"), mk = ([t, c]) => { const s = document.createElement("span"); s.className = "tag" + (c ? " " + c : ""); s.textContent = t; return s; };
+  const z = mk(["", "zap"]); z.id = "zapTag"; z.hidden = true;
+  const els = tags.slice(0, 3).map(mk); els.splice(1, 0, z); tg.replaceChildren(...els);
+  updateLightningTag();
+}
+function updateLightningTag() {
+  const z = document.getElementById("zapTag"); if (!z) return;
+  const near = strikes.filter(s => s.dist < 16).map(s => s.dist);
+  if (!near.length) { z.hidden = true; return; }
+  z.hidden = false; z.textContent = `⚡ ${(Math.min(...near) * .621).toFixed(1)} mi · ${near.length} in 5 min`;
+}
+
+/* ---------------- chart / timeline ---------------- */
+const chart = document.getElementById("chart"), cctx = chart.getContext("2d");
+function drawChart() {
+  if (!series.length) return;
+  const w = chart.clientWidth, h = chart.clientHeight; if (!w) return;
+  if (chart.width !== Math.round(w * DPR)) { chart.width = Math.round(w * DPR); chart.height = Math.round(h * DPR); }
+  const g = cctx; g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, w, h);
+  const top = 4, bot = h - 12, X = t => (t - tMin) / (T_MAX - tMin) * w, Y = r => bot - (bot - top) * Math.min(1, Math.sqrt(r / 2));
+  g.strokeStyle = "rgba(233,225,214,.06)"; g.lineWidth = 1;
+  for (const r of [.1, .3, 1]) { g.beginPath(); g.moveTo(0, Y(r) + .5); g.lineTo(w, Y(r) + .5); g.stroke(); }
+  const bw = w / series.length;
+  for (const p of series) {
+    if (isNaN(p.r)) continue;
+    if (p.r < .005) { g.fillStyle = "rgba(233,225,214,.08)"; g.fillRect(X(p.t) - bw / 2 + .5, bot - 1, bw - 1, 1); continue; }
+    g.fillStyle = lutCss(rateToDbz(p.r), p.t > 0 ? .8 : .95); g.fillRect(X(p.t) - bw / 2 + .5, Y(p.r), Math.max(1, bw - 1), bot - Y(p.r));
+  }
+  g.fillStyle = "rgba(233,225,214,.05)"; g.fillRect(X(0), top, w - X(0), bot - top);           // forecast side
+  g.strokeStyle = "rgba(196,154,108,.9)"; g.beginPath(); g.moveTo(X(0) + .5, 0); g.lineTo(X(0) + .5, bot); g.stroke();
+  const ph = X(tDisp); g.strokeStyle = "#e9e1d6"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(ph, 0); g.lineTo(ph, bot); g.stroke();
+  g.fillStyle = "#e9e1d6"; g.beginPath(); g.arc(ph, 2.5, 2.5, 0, 6.283); g.fill();
+  g.font = "8px ui-monospace, monospace"; g.fillStyle = "rgba(233,225,214,.4)"; g.textBaseline = "alphabetic";
+  for (const [t, s] of [[tMin, tMin === -60 ? "-1h" : "-50m"], [0, "NOW"], [60, "+1h"], [120, "+2h"]]) { const tw = g.measureText(s).width; g.fillText(s, clamp(X(t) - tw / 2, 0, w - tw), h - 2); }
+}
+function setTime(t) {
+  tDisp = clamp(t, tMin, T_MAX);
+  const el = document.getElementById("tlTime"), d = Math.round(tDisp);
+  el.innerHTML = Math.abs(d) < 2 ? "<b>Now</b>" : `${clock(d)} <b>${d > 0 ? "+" : "−"}${Math.abs(d)}m</b>`;
+  const r = rateAtFocus(tDisp) || 0;
+  document.getElementById("sRate").innerHTML = `${r < .01 ? "0" : r >= .095 ? r.toFixed(1) : r.toFixed(2)}<small>in/h</small>`;
+}
+function setPlaying(p) {
+  playing = p; introStop = false;
+  document.getElementById("playIco").innerHTML = p ? '<path d="M3 1.5h3v11H3zM8 1.5h3v11H8z"/>' : '<path d="M3 1.5 L12 7 L3 12.5Z"/>';
+  document.getElementById("play").setAttribute("aria-label", p ? "Pause radar loop" : "Play radar loop");
+}
+document.getElementById("play").onclick = () => { if (!playing && tDisp >= T_MAX - .5) setTime(tMin); setPlaying(!playing); };
+{
+  let scrub = false;
+  const at = e => { const r = chart.getBoundingClientRect(); setTime(tMin + clamp((e.clientX - r.left) / r.width, 0, 1) * (T_MAX - tMin)); drawChart(); };
+  chart.addEventListener("pointerdown", e => { scrub = true; chart.setPointerCapture(e.pointerId); setPlaying(false); at(e); });
+  chart.addEventListener("pointermove", e => scrub && at(e));
+  chart.addEventListener("pointerup", () => { scrub = false; if (Math.abs(tDisp) < 4) { setTime(0); drawChart(); } });
+}
+
+/* ---------------- gestures on the map ---------------- */
+{
+  const pts = new Map(); let last = null, moved = 0, downT = 0, pinch = null;
+  cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pts.size === 1) { last = [e.clientX, e.clientY]; moved = 0; downT = performance.now(); cv.classList.add("drag"); }
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: view.s }; } });
+  cv.addEventListener("pointermove", e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      zoomAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, pinch.s * d / pinch.d / view.s); moved = 99; return; }
+    if (pts.size === 1 && last) { const dx = e.clientX - last[0], dy = e.clientY - last[1]; moved += Math.abs(dx) + Math.abs(dy);
+      view.x -= dx / view.s; view.y += dy / view.s; last = [e.clientX, e.clientY]; viewChanged(); } });
+  const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
+    if (pts.size === 1) last = [...pts.values()][0];
+    if (pts.size === 0) { cv.classList.remove("drag"); if (moved < 7 && performance.now() - downT < 400) setFocus(...s2w(e.clientX, e.clientY)); last = null; } };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+  cv.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * .0015)); }, { passive: false });
+}
+function zoomAt(sx, sy, f) {
+  const [wx, wy] = s2w(sx, sy); view.s = clamp(view.s * f, 1.2, 40);
+  const [nx, ny] = s2w(sx, sy); view.x += wx - nx; view.y += wy - ny; viewChanged();
+}
+function viewChanged() {
+  view.x = clamp(view.x, -200, 220); view.y = clamp(view.y, -200, 200);
+  baseDirty = true; tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, trail.width, trail.height);
+}
+function setFocus(x, y) {
+  let best = null, bd = 1e9;
+  for (const p of PLACES) { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = p; } }
+  if (Math.hypot(x, y) < 1.5) { x = 0; y = 0; focus.name = SNAPSHOT.place; }
+  else if (bd < 3.5) { x = best.x; y = best.y; focus.name = best.n; }
+  else { const [la, lo] = ll(x, y); focus.name = `${la.toFixed(2)}°, ${Math.abs(lo).toFixed(2)}°W`; }
+  focus.x = x; focus.y = y;
+  document.getElementById("tlLbl").textContent = `Rain · ${focus.name}`;
+  strikes.forEach(s => s.dist = Math.hypot(s.x - x, s.y - y));
+  rebuildSeries(); setTime(tDisp);
+}
+document.getElementById("recenter").onclick = () => {
+  view.x = -4; view.y = -4; view.s = clamp(Math.max(W, H * .5) / 74, 4, 16); viewChanged(); setFocus(0, 0);
+};
+document.getElementById("grab").onclick = () => { document.getElementById("panel").classList.toggle("compact"); requestAnimationFrame(drawChart); };
+
+/* ---------------- modes + legend ---------------- */
+const ramp = document.getElementById("ramp"), rctx = ramp.getContext("2d");
+function drawLegend() {
+  rctx.clearRect(0, 0, 300, 12);
+  const T = document.getElementById("legT"), L = document.getElementById("legL");
+  if (mode === "radar") {
+    for (let i = 0; i < 300; i++) { rctx.fillStyle = lutCss(17 + i / 300 * 50); rctx.fillRect(i, 0, 1, 12); }
+    T.textContent = radarReadable() ? "NEXRAD · live · dBZ" : radarLive() ? "NEXRAD · live" : "Precip · modeled"; L.innerHTML = "<span>Light</span><span>Mod</span><span>Heavy</span><span>Extreme</span>";
+  } else if (mode === "geo") {
+    const g = rctx.createLinearGradient(0, 0, 300, 0); g.addColorStop(0, "#0c2a40"); g.addColorStop(.4, "#6f7d88"); g.addColorStop(1, "#f2f4f8");
+    rctx.fillStyle = g; rctx.fillRect(0, 0, 300, 12);
+    T.textContent = goesOk() ? "GOES-East · live" : "GeoColor · modeled"; L.innerHTML = "<span>Clear</span><span>Thin</span><span>Deep cloud</span>";
+  } else {
+    for (let i = 0; i < 300; i++) { rctx.fillStyle = windColor(i / 300 * 32, 1); rctx.fillRect(i, 0, 1, 12); }
+    T.textContent = "Wind · outflow"; L.innerHTML = "<span>0</span><span>10</span><span>20</span><span>30 mph</span>";
+  }
+}
+document.querySelectorAll(".mode").forEach(b => b.onclick = () => {
+  mode = b.dataset.m; document.querySelectorAll(".mode").forEach(x => x.setAttribute("aria-pressed", x === b));
+  baseDirty = true; tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, trail.width, trail.height); updateSources();
+});
+
+/* ---------------- HUD ---------------- */
+function drawHud() {
+  const f = clamp((WX.temp_f - 50) / 50, 0, 1), f2 = clamp((WX.feels_like_f - 50) / 50, 0, 1);
+  document.getElementById("dialArc").setAttribute("stroke-dasharray", `${(207.3 * f).toFixed(1)} 276.5`);
+  const a = (135 + 270 * f2) * RAD; const fd = document.getElementById("dialFeels");
+  fd.setAttribute("cx", 52 + Math.cos(a) * 44); fd.setAttribute("cy", 52 + Math.sin(a) * 44);
+  let ticks = ""; for (let i = 0; i <= 10; i++) { const aa = (135 + 27 * i) * RAD, r1 = i % 2 ? 36.5 : 35, r2 = 38.5;
+    ticks += `<line x1="${52 + Math.cos(aa) * r1}" y1="${52 + Math.sin(aa) * r1}" x2="${52 + Math.cos(aa) * r2}" y2="${52 + Math.sin(aa) * r2}" stroke="rgba(233,225,214,${i % 2 ? .15 : .3})" stroke-width="1"/>`; }
+  document.getElementById("dialTicks").innerHTML = ticks;
+  let ct = ""; for (let i = 0; i < 16; i++) { const aa = i * 22.5 * RAD, r1 = i % 4 ? 26.5 : 24.5;
+    ct += `<line x1="${32 + Math.sin(aa) * r1}" y1="${32 - Math.cos(aa) * r1}" x2="${32 + Math.sin(aa) * 28}" y2="${32 - Math.cos(aa) * 28}" stroke="rgba(233,225,214,${i % 4 ? .14 : .35})"/>`; }
+  document.getElementById("compTicks").innerHTML = ct;
+  document.getElementById("compArrow").setAttribute("transform", `rotate(${S.toDeg} 32 32)`);
+  document.getElementById("temp").textContent = Math.round(WX.temp_f) + "°";
+  document.getElementById("feels").textContent = `feels ${Math.round(WX.feels_like_f)}°`;
+  document.getElementById("windLbl").textContent = `${Math.round(WX.wind_mph)} mph ${dirName(WX.wind_dir_deg)}`;
+  document.getElementById("placeName").textContent = (WX.location || "Miami").split(",")[0];
+  document.getElementById("cond").textContent = `${WX.conditions} · ${rateCat(WX.precip_in_hr) === "none" ? "dry" : rateCat(WX.precip_in_hr)} · ${WX.humidity_pct}% RH`;
+  document.getElementById("sMove").innerHTML = `${Math.round(S.stormMph)}<small>mph ${dirName(S.toDeg)}</small>`;
+  document.getElementById("sHum").innerHTML = `${Math.round(WX.humidity_pct)}<small>%</small>`;
+  document.getElementById("sWind").innerHTML = `${Math.round(WX.wind_mph)}<small>mph ${dirName(WX.wind_dir_deg)}</small>`;
+  document.getElementById("updated").textContent = "as of " + clock(0);
+}
+function tickClock() {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ, timeZoneName: "short" });
+}
+
+/* ---------------- live layers: satellite base, NEXRAD radar, GOES GeoColor ----------------
+   Real imagery comes in as standard Web-Mercator tiles. Each tile is placed by its corner lat/lons through the
+   same projection as everything else, so labels, the pin and the model line up with it. Anything that fails to
+   load falls back to the drawn map and the model above; ?offline=1 skips the network entirely. */
+const LIVE = !/[?&]offline=1/.test(location.search);
+const tileX = (lon, z) => (lon + 180) / 360 * 2 ** z;
+const tileY = (lat, z) => { const r = lat * RAD; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z; };
+const tileLon = (x, z) => x / 2 ** z * 360 - 180;
+const tileLat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / 2 ** z)))  / RAD;
+
+function TileLayer(url, { minZ = 0, maxZ = 18, cors = false } = {}) {
+  const cache = new Map(); let ok = 0, bad = 0, useCors = cors;
+  const L = {
+    minZ, maxZ, tainted: false,
+    get state() { return !LIVE ? "fail" : ok ? "ok" : bad >= 6 ? "fail" : "pending"; },
+    get readable() { return useCors && ok > 0 && !L.tainted; },   // can we read pixels back (needs CORS)
+    peek(z, x, y, f = "") { const e = cache.get(`${f}/${z}/${x}/${y}`); return e && e.ready ? e : null; },
+    tile(z, x, y, f = "") {
+      if (!LIVE) return null;
+      const n = 2 ** z; x = ((x % n) + n) % n; if (y < 0 || y >= n) return null;
+      const k = `${f}/${z}/${x}/${y}`; let e = cache.get(k);
+      if (!e) {
+        e = { img: new Image(), ready: false, failed: false }; cache.set(k, e);
+        if (cache.size > 700) cache.delete(cache.keys().next().value);
+        if (useCors) e.img.crossOrigin = "anonymous";
+        e.img.decoding = "async";
+        e.img.onload = () => { e.ready = true; ok++; onTile(L); };
+        e.img.onerror = () => {
+          e.failed = true; bad++;
+          if (useCors && !ok && bad >= 2) { useCors = false; bad = 0; cache.clear(); }   // maybe no CORS: retry plain, draw-only
+          onTile(L);
+        };
+        e.img.src = url(z, x, y, f);
+      }
+      return e;
+    },
+    clear() { cache.clear(); },
+  };
+  return L;
+}
+
+/* Draws a layer's tiles covering the view into g. opt: { f (frame), shift [km], sc (dest px per css px), zBias, alpha } */
+function drawTiles(g, L, opt = {}) {
+  const sc = opt.sc ?? 1, f = opt.f ?? "", [shx, shy] = opt.shift ?? [0, 0];
+  const density = sc * (opt.dpr ?? 1);
+  let z = clamp(Math.round(Math.log2(view.s * KX * density * 360 / 256) + (opt.zBias ?? 0)), L.minZ, L.maxZ);
+  const [ax, ay] = s2w(-8, -8), [bx, by] = s2w(W + 8, H + 8);
+  const [laT, loL] = ll(ax - shx, ay - shy), [laB, loR] = ll(bx - shx, by - shy);
+  let tx0, tx1, ty0, ty1;
+  for (;;) {
+    tx0 = Math.floor(tileX(loL, z)); tx1 = Math.floor(tileX(loR, z)); ty0 = Math.floor(tileY(laT, z)); ty1 = Math.floor(tileY(laB, z));
+    if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 64 || z <= L.minZ) break; z--;
+  }
+  let complete = true;
+  if (opt.alpha != null) g.globalAlpha = opt.alpha;
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+    const [x0, y0] = w2s(...add(km(tileLat(ty, z), tileLon(tx, z)), shx, shy));
+    const [x1, y1] = w2s(...add(km(tileLat(ty + 1, z), tileLon(tx + 1, z)), shx, shy));
+    const dx = Math.floor(x0 * sc), dy = Math.floor(y0 * sc), dw = Math.ceil(x1 * sc) - dx + (sc >= 1 ? 1 : 0), dh = Math.ceil(y1 * sc) - dy + (sc >= 1 ? 1 : 0);
+    const e = L.tile(z, tx, ty, f);
+    if (e && e.ready) { g.drawImage(e.img, dx, dy, dw, dh); continue; }
+    complete = false;
+    for (let d = 1; d <= 4 && z - d >= L.minZ; d++) {       // show a blurrier parent while this one loads
+      const p = L.peek(z - d, tx >> d, ty >> d, f); if (!p) continue;
+      const k = 256 / 2 ** d; g.drawImage(p.img, (tx - ((tx >> d) << d)) * k, (ty - ((ty >> d) << d)) * k, k, k, dx, dy, dw, dh); break;
+    }
+  }
+  g.globalAlpha = 1;
+  return complete;
+}
+const add = ([x, y], dx, dy) => [x + dx, y + dy];
+
+// Esri World Imagery (free with attribution) + its transparent road/label reference layer
+const SAT = TileLayer((z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`, { maxZ: 18 });
+const ROADREF = TileLayer((z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/${z}/${y}/${x}`, { maxZ: 18 });
+// NEXRAD base reflectivity composite from the Iowa Environmental Mesonet: now, and every 5 min back to 50 min ago
+let radarStamp = Math.floor(Date.now() / 300000);
+const NEX = TileLayer((z, x, y, f) => `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913${f}/${z}/${x}/${y}.png?v=${radarStamp}`, { minZ: 3, maxZ: 11, cors: true });
+// GOES-East via NASA GIBS. The layer is found at runtime (see findGoes) so a renamed layer degrades to the model.
+const goes = { layer: "", set: "", latest: 0 };
+const GOES = TileLayer((z, x, y, f) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${goes.layer}/default/${f}/${goes.set}/${z}/${y}/${x}.${goes.layer.includes("GeoColor") ? "jpg" : "png"}`, { maxZ: 7 });
+const goesOk = () => !!goes.layer && GOES.state !== "fail";   // findGoes already proved one tile loads
+
+/* Colour → dBZ for the IEM n0q palette, approximated by the standard NWS reflectivity ramp (5 dBZ steps).
+   A 32³ lookup cube projects each colour onto the nearest ramp segment, so values are continuous. */
+const NWS = [[5,4,233,231],[10,1,159,244],[15,3,0,244],[20,2,253,2],[25,1,197,1],[30,0,142,0],[35,253,248,2],[40,229,188,0],
+  [45,253,149,0],[50,253,0,0],[55,212,0,0],[60,188,0,0],[65,248,0,253],[70,152,84,198],[75,253,253,253]];
+const CUBE = new Float32Array(32768);
+for (let i = 0; i < 32768; i++) {
+  const r = ((i >> 10) & 31) * 8 + 4, g = ((i >> 5) & 31) * 8 + 4, b = (i & 31) * 8 + 4;
+  let best = 1e9, db = -1;
+  for (let k = 0; k < NWS.length - 1; k++) {
+    const A = NWS[k], B = NWS[k + 1], vx = B[1] - A[1], vy = B[2] - A[2], vz = B[3] - A[3];
+    const t = clamp(((r - A[1]) * vx + (g - A[2]) * vy + (b - A[3]) * vz) / (vx * vx + vy * vy + vz * vz || 1), 0, 1);
+    const d = (A[1] + vx * t - r) ** 2 + (A[2] + vy * t - g) ** 2 + (A[3] + vz * t - b) ** 2;
+    if (d < best) { best = d; db = A[0] + (B[0] - A[0]) * t; }
+  }
+  CUBE[i] = best < 60 * 60 ? db : -1;      // not a radar colour (map background, labels)
+}
+const cubeDbz = (r, g, b, a) => a < 60 ? 0 : Math.max(0, CUBE[(r >> 3) << 10 | (g >> 3) << 5 | (b >> 3)]);
+
+const radarLive = () => NEX.state === "ok";
+const radarReadable = () => radarLive() && NEX.readable;
+/* Which radar frame shows minute t: real frames for the past, the latest frame advected by the storm motion ahead. */
+function radarFrame(t) {
+  if (t <= 0) { const k = clamp(Math.round(-t / 5), 0, 10); return { f: k ? `-m${String(k * 5).padStart(2, "0")}m` : "", shift: [0, 0], fade: 1 }; }
+  return { f: "", shift: [S.vm[0] * t, S.vm[1] * t], fade: 1 - t / 260 };
+}
+
+// Real-radar raster: tiles → small grid canvas → dBZ grid → our colour ramp, plus pseudo-cores for lightning/wind/track
+const rgC = document.createElement("canvas"), rgx = rgC.getContext("2d", { willReadFrequently: true });
+let radarVer = 0, rfKey = "", rfCores = [];
+function realField(t) {
+  const { f, shift, fade } = radarFrame(t);
+  const key = [f, shift[0].toFixed(2), shift[1].toFixed(2), view.x.toFixed(3), view.y.toFixed(3), view.s.toFixed(4), mode, radarVer, GW, GH].join("|");
+  if (key === rfKey) return rfCores;
+  rfKey = key;
+  if (rgC.width !== GW || rgC.height !== GH) { rgC.width = GW; rgC.height = GH; }
+  rgx.clearRect(0, 0, GW, GH); rgx.imageSmoothingEnabled = false;      // nearest: blended colours would decode wrong
+  drawTiles(rgx, NEX, { f, shift, sc: 1 / STEP });
+  let px;
+  try { px = rgx.getImageData(0, 0, GW, GH).data; } catch { NEX.tainted = true; return rfCores = []; }
+  for (let i = 0; i < GW; i++) gxW[i] = view.x + (i * STEP + STEP / 2 - W / 2) / view.s;
+  for (let j = 0; j < GH; j++) gyW[j] = view.y - (j * STEP + STEP / 2 - AY) / view.s;
+  const d = img.data, alphaK = (mode === "wind" ? .32 : 1) * fade;
+  for (let k = 0, o = 0; k < GW * GH; k++, o += 4) {
+    const db = cubeDbz(px[o], px[o + 1], px[o + 2], px[o + 3]); zGrid[k] = db;
+    if (db < 15) { d[o + 3] = 0; continue; }
+    const l = Math.round(Math.min(db, 80) * 2) * 4;
+    d[o] = LUT[l]; d[o + 1] = LUT[l + 1]; d[o + 2] = LUT[l + 2]; d[o + 3] = LUT[l + 3] * alphaK;
+  }
+  fctx.putImageData(img, 0, 0);
+  // block maxima ≥ 40 dBZ become cores the rest of the page already understands
+  const B = 6, sig = B * STEP / view.s / 2, cores = [];
+  for (let bj = 0; bj < GH; bj += B) for (let bi = 0; bi < GW; bi += B) {
+    let m = 0, mi = 0, mj = 0;
+    for (let j = bj; j < Math.min(GH, bj + B); j++) for (let i = bi; i < Math.min(GW, bi + B); i++) { const v = zGrid[j * GW + i]; if (v > m) { m = v; mi = i; mj = j; } }
+    if (m < 40) continue;
+    const amp = 10 ** (m / 10), lnA = Math.log(amp);
+    cores.push({ x: gxW[mi], y: gyW[mj], db: m, amp, ia: 1 / (2 * sig * sig), ic: 1 / (2 * sig * sig), lnA, r: sig * Math.sqrt(2 * lnA), real: true });
+  }
+  // lightning rates were tuned for model cores; scale by block area so zooming doesn't change the strike rate
+  const areaK = (B * STEP / view.s) ** 2 / 20;
+  for (const c of cores) c.lk = areaK;
+  return rfCores = cores;
+}
+/* dBZ at a world point and minute, read straight from a z9 tile (≈300 m pixels). null = not loaded yet. */
+const sampC = document.createElement("canvas"); sampC.width = sampC.height = 256;
+const sampX = sampC.getContext("2d", { willReadFrequently: true });
+function realDbzAt(x, y, t) {
+  const { f, shift } = radarFrame(t), [la, lo] = ll(x - shift[0], y - shift[1]), z = 9;
+  const fx = tileX(lo, z), fy = tileY(la, z), tx = Math.floor(fx), ty = Math.floor(fy);
+  const e = NEX.tile(z, tx, ty, f); if (!e) return null; if (e.failed) return 0; if (!e.ready) return null;
+  if (!e.px) {
+    try { sampX.clearRect(0, 0, 256, 256); sampX.drawImage(e.img, 0, 0); e.px = sampX.getImageData(0, 0, 256, 256).data; }
+    catch { NEX.tainted = true; return null; }
+  }
+  const cx = Math.floor((fx - tx) * 256), cy = Math.floor((fy - ty) * 256); let m = 0;
+  for (let j = Math.max(0, cy - 1); j <= Math.min(255, cy + 1); j++) for (let i = Math.max(0, cx - 1); i <= Math.min(255, cx + 1); i++) {
+    const o = (j * 256 + i) * 4; m = Math.max(m, cubeDbz(e.px[o], e.px[o + 1], e.px[o + 2], e.px[o + 3]));
+  }
+  return m;
+}
+
+/* GIBS: try GeoColor first, then visible / clean-IR; first layer whose tile over Miami loads wins. */
+async function findGoes() {
+  if (!LIVE) return;
+  const z = 5, x = Math.floor(tileX(LON0, z)), y = Math.floor(tileY(LAT0, z));
+  const iso = ms => new Date(ms).toISOString().slice(0, 17) + "00Z";
+  const probe = src => new Promise(res => { const im = new Image(), to = setTimeout(() => res(false), 9000);
+    im.onload = () => { clearTimeout(to); res(true); }; im.onerror = () => { clearTimeout(to); res(false); }; im.src = src; });
+  const C = [["GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level7"], ["GOES-East_ABI_GeoColor", "GoogleMapsCompatible_Level6"],
+    ["GOES-East_ABI_Band2_Red_Visible_1km", "GoogleMapsCompatible_Level8"], ["GOES-East_ABI_Band13_Clean_Infrared", "GoogleMapsCompatible_Level6"]];
+  const now10 = Math.floor(Date.now() / 600000) * 600000;
+  for (const [layer, set] of C) for (const lag of [20, 40, 70, 100, 130, 180]) {
+    const ms = now10 - lag * 60000, ext = layer.includes("GeoColor") ? "jpg" : "png";
+    if (await probe(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${layer}/default/${iso(ms)}/${set}/${z}/${y}/${x}.${ext}`)) {
+      Object.assign(goes, { layer, set, latest: ms, iso }); GOES.maxZ = +set.match(/\d+$/)[0]; GOES.clear(); updateSources(); return;
+    }
+  }
+  updateSources();
+}
+function goesFrame(t) {
+  if (t <= 0) return { f: goes.iso(goes.latest + Math.round(t / 10) * 600000), shift: [0, 0] };
+  return { f: goes.iso(goes.latest), shift: [S.vm[0] * t, S.vm[1] * t] };
+}
+
+let liveTimer = 0;
+function onTile(L) {
+  if (L === SAT || L === ROADREF) baseDirty = true;
+  if (L === NEX) radarVer++;
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => { updateSources(); if (L === NEX) { rebuildSeries(); setTime(tDisp); } }, 350);
+}
+/* Footer + legend reflect what is actually on screen. */
+function updateSources() {
+  const tMinWas = tMin; tMin = radarLive() ? -50 : T_MIN;
+  if (tMin !== tMinWas) { rebuildSeries(); setTime(tDisp); }
+  const parts = [];
+  parts.push(radarLive() ? "Radar NEXRAD/IEM" + (radarReadable() ? "" : " (view only)") : "Radar modeled");
+  if (mode === "geo") parts.push(goesOk() ? "GOES-East/NASA GIBS" : "Clouds modeled");
+  if (SAT.state === "ok") parts.push("Imagery © Esri, Maxar, Earthstar");
+  parts.push(WX.source === "open-meteo" ? "Open-Meteo" : "Oct 17 snapshot");
+  if (radarLive()) parts.push("forecast = radar extrapolation");
+  document.getElementById("foot").textContent = parts.join(" · ");
+  drawLegend();
+}
+
+/* ---------------- frame ---------------- */
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - lastT) / 1000); lastT = now; const rt = now / 1000;
+  if (playing && now > holdUntil) {
+    const nt = tDisp + dt * LOOP_MIN_PER_S;
+    if (introStop && tDisp < 0 && nt >= 0) { setTime(0); setPlaying(false); }
+    else if (nt >= T_MAX) { setTime(T_MAX); holdUntil = now + 1200; setTimeout(() => { if (playing) setTime(tMin); }, 1200); }
+    else setTime(nt);
+    drawChart();
+  }
+  if (baseDirty) drawBase();
+  // One source of truth per frame: readable live radar, else (radar shown but unreadable) nothing to model, else the model.
+  if (NEX.state === "pending") realField(tDisp);   // requests the tiles; the model keeps drawing until they arrive
+  const real = radarReadable(), rawRadar = radarLive() && !real;
+  const cores = real ? realField(tDisp) : rawRadar ? [] : coresAt(tDisp);
+  const realSat = mode === "geo" && goesOk();
+  if (mode === "geo" ? !realSat : !real && !rawRadar) computeField(tDisp, rt, cores);
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.drawImage(base, 0, 0, W, H);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  if (realSat) drawTiles(ctx, GOES, { ...goesFrame(tDisp), dpr: DPR, alpha: .93 });
+  else if (mode === "geo") {   // modeled clouds; shadows fall east of them under a low western sun
+    ctx.drawImage(shadowC, 5, 3, W, H); ctx.drawImage(fieldC, 0, 0, W, H);
+  } else if (rawRadar) { const fr = radarFrame(tDisp); drawTiles(ctx, NEX, { ...fr, dpr: DPR, alpha: (mode === "wind" ? .3 : .8) * fr.fade }); }
+  else ctx.drawImage(fieldC, 0, 0, W, H);
+  ctx.globalAlpha = mode === "geo" ? .55 : 1; ctx.drawImage(ovl, 0, 0, W, H); ctx.globalAlpha = 1;   // reference layer, softer over clouds
+  if (mode === "radar") { drawSweep(rt); drawTrack(cores); }
+  if (mode === "wind") { drawWind(dt, cores); ctx.drawImage(trail, 0, 0, W, H); }
+  updateLightning(dt, cores, rt);
+  drawStrikes(rt);
+  drawLabels();
+  drawPin(rt);
+
+  const target = rateAtFocus(tDisp, rt) || 0;
+  rainLevel += (target - rainLevel) * Math.min(1, dt * 2.5);
+  drawRain(dt, rainLevel, rt);
+
+  if (flash > .01) {      // double-pulse flicker, then decay
+    const a = rt - flashT, pulse = a < .06 ? 1 : a < .11 ? .25 : a < .17 ? .8 : Math.exp(-(a - .17) * 9);
+    ctx.fillStyle = `rgba(226,228,255,${flash * .32 * pulse})`; ctx.fillRect(0, 0, W, H);
+    if (a > .7) flash = 0;
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- conditions in ---------------- */
+function normalize(d) {
+  // Accepts this file's shape or Nard's get_weather tool output ({ location, now: {...} }).
+  const n = d.now || d, o = { ...WX };
+  const num = (v, k) => (typeof v === "number" && isFinite(v)) ? (o[k] = v) : null;
+  num(n.temp_f, "temp_f"); num(n.feels_like_f, "feels_like_f"); num(n.humidity_pct, "humidity_pct");
+  num(n.wind_mph, "wind_mph"); num(n.wind_dir_deg ?? d.wind_dir_deg, "wind_dir_deg");
+  num(n.precip_in_hr ?? (typeof n.precip_in === "number" ? n.precip_in * (n.precip_window_min ? 60 / n.precip_window_min : 1) : undefined), "precip_in_hr");
+  if (typeof n.conditions === "string") o.conditions = n.conditions[0].toUpperCase() + n.conditions.slice(1);
+  if (typeof d.location === "string") o.location = d.location;
+  if (typeof d.outlook === "string") o.outlook = d.outlook;
+  if (typeof d.source === "string") o.source = d.source;
+  return o;
+}
+function setConditions(d) {
+  WX = normalize(d || {}); buildScenario(WX); drawHud(); strikes = []; rebuildSeries(); setTime(tDisp);
+}
+window.NardWeather = {
+  set: setConditions,
+  get: () => ({ ...WX }),
+  mode: m => document.querySelector(`.mode[data-m="${m}"]`)?.click(),
+  focus: (lat, lon) => setFocus(...km(lat, lon)),
+  test: {
+    dbzToRate, rateToDbz, rateCat, dirName, radarFrame, normalize,
+    tileX, tileY, tileLon, tileLat, cubeDbz, km, ll, clamp,
+    thunderSec: (kmDist) => Math.round(kmDist * 1000 / 343),
+    snapshot: () => ({ ...SNAPSHOT }),
+    live: () => LIVE,
+    rateAtFocus,
+  },
+};
+addEventListener("message", e => { if (e.source === window.parent && e.data && e.data.type === "nard-weather") setConditions(e.data.data); });
+
+async function tryLive() {
+  if (!LIVE) return;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT0}&longitude=${LON0}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America%2FNew_York`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) }); if (!r.ok) return;
+    const c = (await r.json()).current || {};
+    const code = c.weather_code, cond = code >= 95 ? "Thunderstorms" : code >= 80 ? "Showers" : code >= 61 ? "Rain" : code >= 51 ? "Drizzle" : code >= 3 ? "Cloudy" : code >= 1 ? "Partly cloudy" : "Clear";
+    // Open-Meteo "current" precipitation is the preceding 15-minute total.
+    setConditions({ temp_f: c.temperature_2m, feels_like_f: c.apparent_temperature, humidity_pct: c.relative_humidity_2m, wind_mph: c.wind_speed_10m,
+      wind_dir_deg: c.wind_direction_10m, precip_in: c.precipitation, precip_window_min: 15, conditions: cond, source: "open-meteo", outlook: "" });
+    updateSources();
+  } catch {}
+}
+
+/* ---------------- boot ---------------- */
+makePatterns();
+buildScenario(WX);
+addEventListener("resize", resize);
+resize(); drawHud(); drawLegend(); tickClock(); setInterval(tickClock, 15000);
+setInterval(updateLightningTag, 5000);
+rebuildSeries();
+if (reduceMotion) { setTime(0); setPlaying(false); } else { setTime(T_MIN); setPlaying(true); introStop = true; }
+requestAnimationFrame(frame);
+tryLive();
+updateSources();
+setTimeout(findGoes, 1200);
+setInterval(() => { radarStamp = Math.floor(Date.now() / 300000); NEX.clear(); radarVer++; rebuildSeries(); }, 300000);   // new radar frame every 5 min
+</script>
+</body>
+</html>

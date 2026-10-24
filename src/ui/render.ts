@@ -13,14 +13,16 @@ import {
   formatWeekdayLong,
   formatWind
 } from "../lib/format";
-import { heatCategory, heatIndexF } from "../lib/heat";
+import { heatCategory, heatIndexF, peakUpcomingHeat, upcomingHeat } from "../lib/heat";
 import { dayRangeLayout, describeNowcast } from "../lib/nowcast";
+import { rainClock } from "../lib/rain-timing";
+import { hurricaneSeasonStatus } from "../lib/season";
 import { formatTimeLeft, staleAge } from "../lib/time";
 import { uvCategory } from "../lib/uv";
 import { currentUv } from "../lib/weather";
-import { isWetCode, weatherIcon, wmoLabel } from "../lib/wmo";
-import { isHurricaneSeason, nextKingTideWindow } from "../data/king-tides";
-import { NEIGHBORHOODS } from "../data/neighborhoods";
+import { isWetCode, skyMood, weatherIcon, wmoLabel } from "../lib/wmo";
+import { nextKingTideWindow } from "../data/king-tides";
+import { searchNeighborhoods } from "../data/neighborhoods";
 import type { Snapshot, Units, ViewId } from "../types";
 
 export const VIEWS: Array<{ id: ViewId; label: string }> = [
@@ -48,27 +50,27 @@ export function renderApp(input: {
   clock?: Date;
 }): string {
   const clock = input.clock ?? new Date();
-  const placeOptions = NEIGHBORHOODS.filter((n) => {
-    const q = input.query.trim().toLowerCase();
-    if (!q) return true;
-    return `${n.name} ${n.area} ${n.tags.join(" ")}`.toLowerCase().includes(q);
-  });
+  const placeOptions = searchNeighborhoods(input.query);
   const snap = input.snapshot && input.snapshot.place.id === input.placeId ? input.snapshot : null;
   const stale = Boolean(snap && (input.fromCache || input.loading));
 
+  const sky = snap ? skyMood(snap.current.weatherCode, snap.current.isDay) : "day";
+
   return `
+    <div class="shell" data-sky="${sky}">
     <a class="skip" href="#main">Skip to briefing</a>
     <canvas id="rain" class="rain" aria-hidden="true"></canvas>
     <header class="top">
       <div class="brand">
         <p class="kicker">Miami AI Weather</p>
-        <h1>South Florida, in plain language</h1>
+        <h1>Biscayne to the Glades</h1>
+        <p class="brand-sub">South Florida, in plain language</p>
       </div>
     </header>
     <div class="sticky-bar">
       <div class="controls">
         <label class="sr-only" for="place-search">Filter neighborhoods</label>
-        <input id="place-search" class="search" type="search" autocomplete="off" placeholder="Filter places" value="${escapeHtml(input.query)}" />
+        <input id="place-search" class="search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" inputmode="search" placeholder="Filter places" value="${escapeHtml(input.query)}" />
         <label class="sr-only" for="place">Neighborhood</label>
         <select id="place">
           ${placeOptions
@@ -102,6 +104,7 @@ export function renderApp(input: {
       <p>Forecast from <a href="https://open-meteo.com/">Open-Meteo</a>. Alerts from <a href="https://www.weather.gov/mfl/">NWS Miami</a>. Tides from <a href="https://tidesandcurrents.noaa.gov/">NOAA CO-OPS</a>. Radar from <a href="https://www.rainviewer.com/api.html">RainViewer</a>. Tropics from <a href="https://www.nhc.noaa.gov/">NHC</a>.</p>
       <p>This is a helper, not a warning service. For watches and warnings use NWS and NHC.</p>
     </footer>
+    </div>
   `;
 }
 
@@ -170,19 +173,70 @@ function nowView(snap: Snapshot, units: Units): string {
   const icon = weatherIcon(snap.current.weatherCode, snap.current.isDay);
   const hours = snap.hours.filter((h) => h.time >= new Date(snap.current.time.getTime() - 30 * 60 * 1000)).slice(0, 14);
   const nowcast = describeNowcast(snap.nowcast, snap.current.time, snap.timezone);
+  const today = snap.days[0];
+  const rain = rainClock(snap.nowcast, snap.hours, snap.current.time, snap.timezone);
+  const heatHours = upcomingHeat(snap.hours, snap.current.time, 6);
+  const season = hurricaneSeasonStatus(snap.current.time, snap.timezone);
+  const cat = heatCategory(hi);
 
   return `
     <section class="hero card">
       <p class="place">${escapeHtml(snap.place.name)} · ${escapeHtml(snap.place.area)}</p>
       <p class="greeting">${escapeHtml(brief.greeting)}</p>
       <div class="temp-row">
-        <p class="temp">${formatTemp(snap.current.tempF, units)}<span>${formatTempUnit(units)}</span></p>
+        <div class="temp-block">
+          <p class="temp">${formatTemp(snap.current.tempF, units)}<span>${formatTempUnit(units)}</span></p>
+          ${
+            today
+              ? `<p class="hi-lo">H ${formatTemp(today.highF, units)} · L ${formatTemp(today.lowF, units)}</p>`
+              : ""
+          }
+        </div>
         <p class="icon" aria-hidden="true">${icon}</p>
       </div>
       <p class="lead">${escapeHtml(brief.headline)}</p>
-      <p class="muted">${escapeHtml(wmoLabel(snap.current.weatherCode))} · Feels ${formatTemp(Math.max(snap.current.feelsF, hi), units)} · Heat index ${formatTemp(hi, units)}</p>
+      <p class="muted meta">${escapeHtml(wmoLabel(snap.current.weatherCode))} · Feels ${formatTemp(Math.max(snap.current.feelsF, hi), units)} · Heat index ${formatTemp(hi, units)}</p>
+      <div class="story-row" aria-label="Heat, rain, and tropics">
+        <p class="story ${cat.level === "comfortable" ? "low" : cat.level === "caution" ? "moderate" : "high"}">Heat index ${formatTemp(hi, units)} · ${escapeHtml(cat.label)}</p>
+        <p class="story">${escapeHtml(rain.summary)}</p>
+        <p class="story ${season.open ? "moderate" : "low"}">${escapeHtml(season.label)}${season.daysLeft !== null ? ` · ${season.daysLeft} days left` : ""}</p>
+      </div>
       ${nowcast ? `<p class="nowcast">${escapeHtml(nowcast)}</p>` : ""}
     </section>
+    <section class="card rain-clock">
+      <h2>Rain next few hours</h2>
+      <p>${escapeHtml(rain.summary)}</p>
+      ${
+        rain.hours.length
+          ? `<div class="strip rain-strip" aria-label="Rain timing">${rain.hours
+              .map(
+                (h) => `<article>
+                  <span>${escapeHtml(formatHour(h.time, snap.timezone))}</span>
+                  <strong class="${h.wet ? "high" : "low"}">${h.wet ? "Wet" : "Dry"}</strong>
+                  <em>${formatPrecip(h.precipIn, units)}</em>
+                </article>`
+              )
+              .join("")}</div>`
+          : ""
+      }
+      <p class="muted">15-minute Open-Meteo nowcast, with hourly amounts if that feed is empty. Cached snapshots still paint this clock.</p>
+    </section>
+    ${
+      heatHours.length
+        ? `<section class="card heat-clock">
+      <h2>Heat index next few hours</h2>
+      <div class="strip" aria-label="Heat index hours">${heatHours
+        .map(
+          (h) => `<article>
+            <span>${escapeHtml(formatHour(h.time, snap.timezone))}</span>
+            <strong>${formatTemp(h.heatIndexF, units)}</strong>
+            <em>${escapeHtml(h.category.label)}</em>
+          </article>`
+        )
+        .join("")}</div>
+    </section>`
+        : ""
+    }
     <section class="strip" aria-label="Next hours">
       ${hours
         .map(
@@ -276,6 +330,7 @@ function radarView(snap: Snapshot, playing: boolean): string {
       </div>
       <p class="muted" id="radar-stamp">${snap.radar.frames.length ? "RainViewer mosaic over South Florida" : "Radar frames did not load. The rest of the briefing still stands."}</p>
       <div id="radar-map" role="img" aria-label="Animated radar map of South Florida"></div>
+      <p class="radar-helper-link"><a href="./radar-helper.html">Open the full-screen NEXRAD helper</a> — live IEM radar, GOES-East GeoColor, wind, and a nowcast insight. Same pin stays here.</p>
     </section>
   `;
 }
@@ -308,11 +363,8 @@ function beachView(snap: Snapshot, units: Units): string {
 function heatView(snap: Snapshot, units: Units): string {
   const hi = heatIndexF(snap.current.tempF, snap.current.humidity);
   const cat = heatCategory(hi);
-  const slice = snap.hours.slice(0, 18);
-  const peak = slice.reduce<(typeof slice)[number] | null>((best, h) => {
-    if (!best) return h;
-    return heatIndexF(h.tempF, h.humidity) > heatIndexF(best.tempF, best.humidity) ? h : best;
-  }, null);
+  const slice = upcomingHeat(snap.hours, snap.current.time, 12);
+  const peak = peakUpcomingHeat(slice);
   return `
     <section class="card">
       <h2>Heat desk</h2>
@@ -322,15 +374,28 @@ function heatView(snap: Snapshot, units: Units): string {
         ${stat("Air", formatTemp(snap.current.tempF, units))}
         ${stat("Humidity", `${Math.round(snap.current.humidity)}%`)}
         ${stat("Feels like", formatTemp(snap.current.feelsF, units))}
-        ${stat("Peak HI soon", peak ? `${formatTemp(heatIndexF(peak.tempF, peak.humidity), units)} at ${escapeHtml(formatHour(peak.time, snap.timezone))}` : "—")}
+        ${stat("Peak HI soon", peak ? `${formatTemp(peak.heatIndexF, units)} at ${escapeHtml(formatHour(peak.time, snap.timezone))}` : "—")}
       </div>
+      ${
+        slice.length
+          ? `<div class="strip" aria-label="Upcoming heat index">${slice
+              .map(
+                (h) => `<article>
+                  <span>${escapeHtml(formatHour(h.time, snap.timezone))}</span>
+                  <strong>${formatTemp(h.heatIndexF, units)}</strong>
+                  <em>${escapeHtml(h.category.label)}</em>
+                </article>`
+              )
+              .join("")}</div>`
+          : ""
+      }
     </section>
   `;
 }
 
 function floodView(snap: Snapshot, units: Units): string {
   const next6 = snap.hours
-    .filter((h) => h.time >= snap.current.time)
+    .filter((h) => h.time.getTime() >= snap.current.time.getTime() - 20 * 60 * 1000)
     .slice(0, 6)
     .reduce((s, h) => s + h.precipIn, 0);
   const flood = assessFlood({
@@ -367,11 +432,17 @@ function floodView(snap: Snapshot, units: Units): string {
 }
 
 function tropicsView(snap: Snapshot): string {
-  const open = isHurricaneSeason(snap.current.time, snap.timezone);
+  const season = hurricaneSeasonStatus(snap.current.time, snap.timezone);
   return `
     <section class="card">
       <h2>Tropics desk</h2>
-      <p>${open ? "Atlantic hurricane season is open (June 1–November 30)." : "Atlantic hurricane season is closed."}</p>
+      <p class="lead">${escapeHtml(season.label)}</p>
+      <p>${escapeHtml(season.note)}</p>
+      ${
+        season.daysLeft !== null
+          ? `<p class="muted">${season.daysLeft} day${season.daysLeft === 1 ? "" : "s"} left in the official Atlantic season.</p>`
+          : ""
+      }
       ${
         snap.storms.length
           ? `<ul>${snap.storms.map((s) => `<li>${escapeHtml(s.classification)} ${escapeHtml(s.name)}</li>`).join("")}</ul>`

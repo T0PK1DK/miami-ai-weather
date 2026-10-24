@@ -7,12 +7,12 @@ export function describeNowcast(
 ): string | null {
   const upcoming = points
     .filter((p) => p.time.getTime() >= now.getTime() - 10 * 60 * 1000)
-    .slice(0, 8);
+    .slice(0, 24);
   if (upcoming.length === 0) return null;
 
   const wet = upcoming.filter((p) => p.precipIn >= 0.01);
   if (wet.length === 0) {
-    return "The 15-minute nowcast stays dry for the next hour or so.";
+    return "The 15-minute nowcast stays dry for the next few hours.";
   }
 
   const first = wet[0]!;

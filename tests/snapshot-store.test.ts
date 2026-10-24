@@ -96,6 +96,139 @@ describe("offline snapshot UI", () => {
     expect(html).not.toMatch(/King|Leonard/i);
   });
 
+  it("keeps rain, heat, and season clocks on a cached snapshot", () => {
+    const html = renderApp({
+      snapshot: sampleSnapshot({
+        current: {
+          time: new Date("2026-10-21T14:00:00-04:00"),
+          tempF: 84,
+          feelsF: 90,
+          humidity: 68,
+          precipIn: 0,
+          weatherCode: 2,
+          windMph: 12,
+          gustMph: 16,
+          windDir: 90,
+          pressureMb: 1014,
+          cloud: 40,
+          isDay: true,
+          visibilityMi: 8
+        },
+        hours: [
+          {
+            time: new Date("2026-10-21T14:00:00-04:00"),
+            tempF: 84,
+            feelsF: 90,
+            humidity: 68,
+            precipIn: 0,
+            pop: 10,
+            weatherCode: 2,
+            windMph: 12,
+            gustMph: 16,
+            windDir: 90,
+            uv: 6,
+            cape: 400,
+            visibilityMi: 8,
+            cloud: 40
+          },
+          {
+            time: new Date("2026-10-21T16:00:00-04:00"),
+            tempF: 83,
+            feelsF: 88,
+            humidity: 70,
+            precipIn: 0.1,
+            pop: 60,
+            weatherCode: 80,
+            windMph: 14,
+            gustMph: 18,
+            windDir: 100,
+            uv: 4,
+            cape: 1200,
+            visibilityMi: 6,
+            cloud: 70
+          }
+        ],
+        nowcast: [
+          { time: new Date("2026-10-21T14:00:00-04:00"), precipIn: 0 },
+          { time: new Date("2026-10-21T16:00:00-04:00"), precipIn: 0.1 }
+        ],
+        storms: []
+      }),
+      view: "now",
+      units: "us",
+      placeId: "south-beach",
+      query: "",
+      loading: false,
+      error: "Forecast feed is down. Try again in a minute.",
+      fromCache: true,
+      radarPlaying: false,
+      clock: new Date("2026-10-21T16:00:00-04:00")
+    });
+    expect(html).toMatch(/last saved snapshot/);
+    expect(html).toMatch(/Rain next few hours/);
+    expect(html).toMatch(/Heat index next few hours/);
+    expect(html).toMatch(/Late Atlantic hurricane season/);
+    expect(html).toMatch(/4\s*PM/);
+
+    const tropics = renderApp({
+      snapshot: sampleSnapshot({
+        current: {
+          ...sampleSnapshot().current,
+          time: new Date("2026-10-22T11:00:00-04:00")
+        }
+      }),
+      view: "tropics",
+      units: "us",
+      placeId: "south-beach",
+      query: "",
+      loading: false,
+      error: null,
+      fromCache: true,
+      radarPlaying: false,
+      clock: new Date("2026-10-22T11:00:00-04:00")
+    });
+    expect(tropics).toMatch(/Late Atlantic hurricane season/);
+    expect(tropics).toMatch(/39 day/);
+    expect(tropics).toMatch(/No named storms/);
+  });
+
+  it("paints the Miami hero with high and low from the snapshot", () => {
+    const html = renderApp({
+      snapshot: sampleSnapshot({
+        days: [
+          {
+            date: new Date("2026-10-21T00:00:00-04:00"),
+            highF: 88,
+            lowF: 76,
+            feelsMaxF: 96,
+            precipIn: 0.1,
+            pop: 40,
+            weatherCode: 2,
+            uvMax: 8,
+            windMaxMph: 14,
+            sunrise: new Date("2026-10-21T07:24:00-04:00"),
+            sunset: new Date("2026-10-21T18:48:00-04:00")
+          }
+        ]
+      }),
+      view: "now",
+      units: "us",
+      placeId: "south-beach",
+      query: "",
+      loading: false,
+      error: null,
+      fromCache: false,
+      radarPlaying: false,
+      clock: new Date("2026-10-21T16:00:00-04:00")
+    });
+    expect(html).toMatch(/Biscayne to the Glades/);
+    expect(html).toMatch(/data-sky="day"/);
+    expect(html).toMatch(/H 88°/);
+    expect(html).toMatch(/L 76°/);
+    expect(html).toMatch(/enterkeyhint="search"/);
+    expect(html).toMatch(/inputmode="search"/);
+  });
+
   it("does not show another place's cached snapshot", () => {
     const html = renderApp({
       snapshot: sampleSnapshot(),

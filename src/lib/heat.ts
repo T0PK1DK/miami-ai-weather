@@ -30,6 +30,33 @@ export function heatIndexF(tempF: number, relativeHumidity: number): number {
   return round1(hi);
 }
 
+export type HeatHour = {
+  time: Date;
+  heatIndexF: number;
+  category: ReturnType<typeof heatCategory>;
+};
+
+export function upcomingHeat(
+  hours: Array<{ time: Date; tempF: number; humidity: number }>,
+  now: Date,
+  count = 8
+): HeatHour[] {
+  return hours
+    .filter((h) => h.time.getTime() >= now.getTime() - 30 * 60 * 1000)
+    .slice(0, count)
+    .map((h) => {
+      const hi = heatIndexF(h.tempF, h.humidity);
+      return { time: h.time, heatIndexF: hi, category: heatCategory(hi) };
+    });
+}
+
+export function peakUpcomingHeat(hours: HeatHour[]): HeatHour | null {
+  return hours.reduce<HeatHour | null>((best, h) => {
+    if (!best) return h;
+    return h.heatIndexF > best.heatIndexF ? h : best;
+  }, null);
+}
+
 export function heatCategory(indexF: number): {
   level: "caution" | "extreme-caution" | "danger" | "extreme-danger" | "comfortable";
   label: string;

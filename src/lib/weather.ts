@@ -6,6 +6,7 @@ const AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
 const MARINE_URL = "https://marine-api.open-meteo.com/v1/marine";
 const RAINVIEWER_URL = "https://api.rainviewer.com/public/weather-maps.json";
 const TIDE_STATION = "8723214";
+const NWS_USER_AGENT = "miami-ai-weather (https://github.com/T0PK1DK/miami-ai-weather)";
 
 type Json = Record<string, unknown>;
 
@@ -163,7 +164,9 @@ async function fetchAlerts(place: Neighborhood): Promise<AlertItem[]> {
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url, { headers: { Accept: "application/geo+json" } });
+      const res = await fetch(url, {
+        headers: { Accept: "application/geo+json", "User-Agent": NWS_USER_AGENT }
+      });
       if (!res.ok) continue;
       const json = (await res.json()) as { features?: Array<{ id?: string; properties?: Json }> };
       return (json.features ?? []).map((f) => {

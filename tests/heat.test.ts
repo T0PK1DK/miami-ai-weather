@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { heatCategory, heatIndexF } from "../src/lib/heat";
+import { heatCategory, heatIndexF, peakUpcomingHeat, upcomingHeat } from "../src/lib/heat";
 
 describe("heatIndexF", () => {
   it("stays close to air temperature in dry mild air", () => {
@@ -28,5 +28,23 @@ describe("heatIndexF", () => {
 
   it("labels extreme danger above 130", () => {
     expect(heatCategory(131).level).toBe("extreme-danger");
+  });
+
+  it("peaks upcoming hours only, not a morning that already passed", () => {
+    const now = new Date("2026-07-08T16:00:00-04:00");
+    const hours = upcomingHeat(
+      [
+        { time: new Date("2026-07-08T11:00:00-04:00"), tempF: 96, humidity: 70 },
+        { time: now, tempF: 92, humidity: 70 },
+        { time: new Date("2026-07-08T17:00:00-04:00"), tempF: 82, humidity: 55 }
+      ],
+      now,
+      8
+    );
+    expect(hours).toHaveLength(2);
+    expect(hours[0]!.time.toISOString()).toBe(now.toISOString());
+    const peak = peakUpcomingHeat(hours);
+    expect(peak?.time.toISOString()).toBe(now.toISOString());
+    expect(peak!.heatIndexF).toBe(heatIndexF(92, 70));
   });
 });

@@ -63,7 +63,13 @@ export class WeatherApp {
     this.root.innerHTML = renderApp({ ...this.state, clock: new Date() });
     this.bind();
     this.mountRain(rainCanvas);
+    this.revealActiveChip();
     if (this.state.view === "radar") this.mountRadar();
+  }
+
+  private revealActiveChip(): void {
+    const on = this.root.querySelector<HTMLElement>(".chips button.on");
+    on?.scrollIntoView({ block: "nearest", inline: "center", behavior: "instant" });
   }
 
   private bind(): void {

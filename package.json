@@ -6,7 +6,7 @@
   "description": "Mobile-first Miami weather helper with a live radar, particle rain, neighborhood filters, and a deterministic briefing engine.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/check-helper.mjs public/radar-helper.html",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "vitest run",
     "test:watch": "vitest",
